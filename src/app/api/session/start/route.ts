@@ -128,6 +128,7 @@ async function startConversationalAgent(params: {
     avatarRtcUid,
     RtcRole.PUBLISHER,
     privilegeExpiredTs,
+    privilegeExpiredTs,
   );
   const authToken = RtcTokenBuilder.buildTokenWithRtm(
     params.appId,
@@ -334,6 +335,7 @@ export async function POST(request: Request) {
       channelName,
       uid,
       RtcRole.PUBLISHER,
+      privilegeExpiredTs,
       privilegeExpiredTs,
     );
     const rtmToken = RtcTokenBuilder.buildTokenWithRtm(
