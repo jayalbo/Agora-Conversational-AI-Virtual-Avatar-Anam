@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  /* Official Agora palette sampled from agora.io */
+  --agora-blue: #00c2ff;
+  --agora-primary: #099dfd;
+  --agora-primary-strong: #0286ff;
+  --agora-dark-900: #080808;
+  --agora-dark-800: #0d0d0d;
+  --agora-dark-700: #101010;
+  --agora-dark-600: #131313;
+  --agora-dark-500: #171717;
+  --agora-dark-400: #1c1c1c;
+  --agora-dark-300: #222222;
+  --agora-accent-aquamarine: #6cefce;
+  --agora-accent-pink: #e391ef;
+  --agora-accent-warning: #ffc043;
+  --agora-accent-negative: #f95959;
+  --agora-accent-positive: #3aa76d;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+body {
+  background:
+    radial-gradient(55% 45% at 50% 0%, rgba(9, 157, 253, 0.18) 0%, rgba(8, 8, 8, 0) 60%),
+    radial-gradient(40% 40% at 92% 100%, rgba(0, 194, 255, 0.12) 0%, rgba(8, 8, 8, 0) 60%),
+    radial-gradient(45% 40% at 8% 90%, rgba(227, 145, 239, 0.06) 0%, rgba(8, 8, 8, 0) 60%),
+    #080808;
+  color: #e9ebee;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+/* Subtle scrollbars inside panels */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
