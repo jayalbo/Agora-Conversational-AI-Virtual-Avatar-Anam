@@ -10,7 +10,7 @@ import {
   type ReactNode
 } from "react";
 
-export type Locale = "en" | "pt-BR";
+export type Locale = "en" | "pt-BR" | "es-MX";
 
 export type LocaleMeta = {
   code: Locale;
@@ -28,6 +28,13 @@ export const LOCALES: readonly LocaleMeta[] = [
     shortLabel: "PT",
     flag: "🇧🇷",
     speechLang: "pt-BR"
+  },
+  {
+    code: "es-MX",
+    label: "Español (México)",
+    shortLabel: "ES",
+    flag: "🇲🇽",
+    speechLang: "es-MX"
   }
 ] as const;
 
@@ -334,9 +341,123 @@ const ptBR: Dictionary = {
   ]
 };
 
+const esMX: Dictionary = {
+  app: {
+    title: "IA Conversacional Agora",
+    subtitle: "Sesión en vivo de voz + avatar"
+  },
+  status: {
+    idle: "Inactivo",
+    connecting: "Conectando",
+    live: "En vivo"
+  },
+  stage: {
+    assistant: "Asistente",
+    pressStart: "Presiona Iniciar para comenzar la llamada",
+    connecting: "Conectando con el agente..."
+  },
+  chat: {
+    title: "Conversación",
+    description: "Transcripción en vivo del usuario y del asistente.",
+    empty: "La transcripción aparecerá aquí cuando inicies la llamada.",
+    messageCount: (n) => `${n} msjs`,
+    composerPlaceholder: "Envía un mensaje al asistente...",
+    composerPlaceholderIdle: "Inicia una llamada para chatear",
+    send: "Enviar mensaje"
+  },
+  controls: {
+    start: "Iniciar llamada",
+    connecting: "Conectando",
+    end: "Finalizar llamada",
+    mute: "Silenciar micrófono",
+    unmute: "Activar micrófono",
+    settings: "Ajustes de la sesión",
+    microphone: "Micrófono",
+    microphoneDefault: "Predeterminado del sistema",
+    microphonePermissionNeeded: "Da acceso al micrófono para ver los dispositivos",
+    showChat: "Mostrar chat",
+    hideChat: "Ocultar chat",
+    showCaptions: "Mostrar subtítulos",
+    hideCaptions: "Ocultar subtítulos"
+  },
+  settings: {
+    title: "Ajustes de la sesión",
+    description: "Ajusta el asistente para la próxima llamada.",
+    credentials: "Credenciales de Agora",
+    credentialsHint:
+      "Usa tu propia cuenta de Agora. Los valores se guardan solo en este navegador y se envían en cada llamada para iniciar la sesión. Obtén los tuyos en console.agora.io.",
+    appId: "App ID",
+    appIdPlaceholder: "Tu App ID de Agora",
+    appCertificate: "App Certificate",
+    appCertificatePlaceholder: "Tu App Certificate de Agora",
+    clearCredentials: "Borrar credenciales",
+    credentialsRequired:
+      "Agrega tu App ID y App Certificate de Agora en los ajustes para iniciar una llamada.",
+    systemPrompt: "Prompt del sistema",
+    systemPromptHint:
+      "Se aplica en la próxima llamada. Reinicia la sesión para tomar los cambios.",
+    systemPromptPlaceholder: "Define tono, idioma, personalidad, etc.",
+    greeting: "Saludo",
+    greetingHint: "El asistente dice esta frase en cuanto se conecta la llamada.",
+    greetingPlaceholder: "ej.: ¡Hola! Soy tu asistente. ¿En qué te puedo ayudar?",
+    language: "Idioma",
+    languageHint: "Controla la interfaz y el idioma de las respuestas del asistente.",
+    voiceSpeed: "Velocidad de la voz",
+    voiceSpeedHint: "Qué tan rápido habla el asistente. 1.0 es lo normal.",
+    voiceSpeedSlower: "Más lento",
+    voiceSpeedFaster: "Más rápido",
+    mcp: "Herramientas MCP",
+    mcpHint: "Conecta el asistente a un servidor MCP para que pueda llamar herramientas.",
+    mcpEnable: "Activar MCP",
+    mcpServerUrl: "URL del servidor MCP",
+    mcpServerUrlPlaceholder: "https://ejemplo.com/mcp/sse",
+    close: "Cerrar ajustes",
+    restoreDefaults: "Restaurar valores predeterminados",
+    restoreDefaultsHint:
+      "Restablece todos los campos de esta página a su valor original.",
+    restoreDefaultsConfirm: "¿Restablecer todos los ajustes a los valores predeterminados?"
+  },
+  errors: {
+    rtmNotReady:
+      "El RTM aún no está listo. Espera a que el agente se active para mandar mensajes.",
+    sendFailed: "No se pudo enviar el mensaje por RTM.",
+    startFailed: "No se pudo iniciar la sesión."
+  },
+  systemPromptDefault: [
+    "Eres el gemelo digital de Yan, representante de Developer Relations de Agora en Brasil.",
+    "Estás hablando en vivo con visitantes del Digital Tech Show organizado por IIMA en https://iimainfo.com.br/digital-tech-show/.",
+    "Tu misión es mostrar la plataforma de engagement en tiempo real de Agora — con foco especial en IA Conversacional — y ayudar a los visitantes a entender cómo pueden construir con ella.",
+    "Esta misma conversación es una demo del Conversational AI Agent de Agora corriendo con TTS en tiempo real y un avatar realista; siéntete libre de mencionarlo cuando venga al caso.",
+    "Habla de los productos de Agora cuando sea útil: Conversational AI Agent, Voz y Video en Tiempo Real (RTC), Signaling (RTM), Cloud Recording, Interactive Live Streaming y AI Noise Suppression.",
+    "Tienes acceso a una herramienta MCP conectada a la documentación oficial de Agora. Úsala siempre que la pregunta requiera detalles específicos y actualizados — capacidades de producto, planes y precios, quickstarts, APIs de los SDK, parámetros, proveedores soportados, release notes, límites — cualquier cosa de la que no estés 100% seguro. Prefiere llamar a la herramienta antes que adivinar.",
+    "Cuando necesites llamar a la herramienta, di brevemente que vas a consultar (por ejemplo, \"déjame revisar rápido la documentación\") y responde cuando tengas el resultado.",
+    "REGLAS DE SALIDA HABLADA — son estrictas; tus palabras van directo a un motor de text-to-speech:",
+    "• Nunca digas URLs, ligas, rutas de archivos ni correos. Si existe un recurso, descríbelo con palabras (por ejemplo, di \"la documentación de Agora\" en lugar de una URL).",
+    "• Nunca digas código, JSON, XML, HTML ni comandos de terminal. Explica en lenguaje natural qué hacen.",
+    "• Nunca uses sintaxis markdown: sin asteriscos (*), guiones bajos (_), comillas invertidas (`), numerales (#), pipes (|), signos de mayor/menor (<>), corchetes ([]), llaves ({}) ni guiones iniciales de listas.",
+    "• Nunca produzcas cadenas de puntuación ni símbolos como /, \\, =, +, ~, ^, &, %, $, @, ni puntos suspensivos más allá de lo que pida el habla natural.",
+    "• Números, versiones e identificadores: dilos de forma natural (por ejemplo, \"versión uno punto dos\" en lugar de \"v1.2\"). Omite IDs internos, UUIDs y hashes.",
+    "Personalidad: eres Yan — genuinamente carismático, cálido y platicador, ese DevRel que hace que cualquier desconocido se sienta en confianza en dos minutos. Sé curioso con el visitante, suelta alguna broma ligera de vez en cuando y mantén un tono relajado y cercano (\"¡qué buena pregunta!\", \"me encanta que me preguntes eso\", \"mira, mi parte favorita es...\"). Nunca forzado ni exagerado — sinceramente interesado y con buena vibra.",
+    "Usa el nombre del visitante en cuanto lo sepas. Haz pequeñas preguntas de seguimiento para que la plática fluya (qué está construyendo, qué lo trajo al evento). Celebra brevemente sus ideas antes de responder.",
+    "Estilo: conversacional, conciso, con buena vibra. Mantén las respuestas cortas (1 a 3 oraciones), ya que se dirán en voz alta. Lenguaje natural hablado — con contracciones, con personalidad, nunca robótico.",
+    "Mantente en el tema de Agora, comunicación en tiempo real, agentes de IA por voz y cómo empezar. Si la plática se desvía, regrésala con un puente amable, no con un corte seco.",
+    "Si ni la herramienta de documentación puede responder, dilo con honestidad, tómalo con ligereza (\"¡esa me dejó pensando!\") y sugiere al visitante que platique con Yan después de la demo.",
+    "Responde en español de México, usando \"tú\" (por ejemplo: \"¿qué quieres saber?\", \"cuéntame\", \"tienes\"). Evita el \"vos\"."
+  ].join(" "),
+  greetingDefault:
+    "¡Hola, qué tal! Soy el gemelo digital de Yan — corriendo sobre la IA Conversacional de Agora, con voz en tiempo real y este avatar que estás viendo en vivo. ¡Qué padre que pasaste por el Digital Tech Show de IIMA! Cuéntame, ¿qué te gustaría saber sobre Agora?",
+  fillerPhrases: [
+    "Dame un segundo...",
+    "Mmm, déjame pensar...",
+    "Un momentito...",
+    "Espera tantito..."
+  ]
+};
+
 const DICTIONARIES: Record<Locale, Dictionary> = {
   en,
-  "pt-BR": ptBR
+  "pt-BR": ptBR,
+  "es-MX": esMX
 };
 
 type I18nContextValue = {
@@ -353,9 +474,10 @@ const STORAGE_KEY = "yan.locale";
 function detectInitialLocale(): Locale {
   if (typeof window === "undefined") return "en";
   const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored === "en" || stored === "pt-BR") return stored;
-  const nav = window.navigator?.language ?? "";
-  if (nav.toLowerCase().startsWith("pt")) return "pt-BR";
+  if (stored === "en" || stored === "pt-BR" || stored === "es-MX") return stored;
+  const nav = (window.navigator?.language ?? "").toLowerCase();
+  if (nav.startsWith("pt")) return "pt-BR";
+  if (nav.startsWith("es")) return "es-MX";
   return "en";
 }
 
