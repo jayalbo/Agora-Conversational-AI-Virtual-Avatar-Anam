@@ -37,15 +37,25 @@ function getSessionSecret(): Uint8Array {
 /**
  * "sso"    → full OAuth against Agora SSO (production + staging).
  * "bypass" → local dev shortcut. Every request is treated as DEV_USER.
- *            Guarded: refuses to operate when NODE_ENV === "production".
+ *            In production (NODE_ENV === "production") bypass is refused
+ *            UNLESS ALLOW_BYPASS_IN_PRODUCTION is explicitly set to
+ *            "true". The double-opt-in exists so a single typo can't
+ *            turn a production deployment into an unauthenticated
+ *            public demo. Use with intent.
  */
 export function authMode(): "sso" | "bypass" {
   const raw = (process.env.AUTH_MODE || "sso").toLowerCase();
   if (raw === "bypass") {
     if (process.env.NODE_ENV === "production") {
-      // Belt-and-suspenders. If someone mis-sets AUTH_MODE=bypass in prod,
-      // we refuse to honor it regardless.
-      return "sso";
+      const allow = (process.env.ALLOW_BYPASS_IN_PRODUCTION || "")
+        .trim()
+        .toLowerCase();
+      if (allow !== "true") {
+        return "sso";
+      }
+      console.warn(
+        "[auth] AUTH_MODE=bypass is active in production because ALLOW_BYPASS_IN_PRODUCTION=true. Every request is treated as DEV_USER — the demo is effectively unauthenticated.",
+      );
     }
     return "bypass";
   }
