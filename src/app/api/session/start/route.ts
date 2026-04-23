@@ -2,13 +2,18 @@ import { RtcRole, RtcTokenBuilder } from "agora-token";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
+import { getSessionUser } from "@/lib/auth";
+import { quotaSecondsPerUser, reserve } from "@/lib/quota";
+
 type McpConfig = { enabled: false } | { enabled: true; serverUrl: string };
+type VisionConfig = { enabled: boolean };
 
 type StartSessionPayload = {
   systemPrompt?: string;
   greeting?: string;
   voiceSpeed?: number;
   mcp?: McpConfig;
+  vision?: VisionConfig;
   fillerPhrases?: string[];
   asrLanguage?: string;
   // When the user brings their own Agora account, the client provides
@@ -82,6 +87,7 @@ async function startConversationalAgent(params: {
   greeting: string;
   voiceSpeed: number;
   mcp: McpConfig;
+  vision: VisionConfig;
   fillerPhrases: string[];
   asrLanguage: string;
 }) {
@@ -161,16 +167,39 @@ async function startConversationalAgent(params: {
         ]
       : [];
 
+  const systemMessages: Array<{ role: "system"; content: string }> = [
+    { role: "system", content: params.systemPrompt },
+    {
+      role: "system",
+      content: `When the conversation begins, greet the user with exactly: "${params.greeting}"`,
+    },
+  ];
+
+  // Vision addendum — only added when the client has the camera on, so
+  // the agent doesn't hallucinate having eyes when it doesn't. The
+  // primary use case is reading conference attendee badges: names,
+  // companies, and roles printed on lanyards are the most
+  // conversation-unlocking signal in the frame.
+  if (params.vision.enabled) {
+    systemMessages.push({
+      role: "system",
+      content: [
+        "VISION IS ENABLED: the user has shared their camera and you receive a fresh frame every few seconds as image input. Treat the latest image as 'what you can see right now.'",
+        "Badge reading is the priority use case. At the IIMA Digital Tech Show, visitors wear lanyards with a printed name and company. When you can read a badge:",
+        "• Greet the visitor by their first name as soon as you're confident you've read it correctly (e.g. \"Oh, nice to meet you, Marina!\").",
+        "• If you can also see the company, weave it in naturally (\"How's everything going at Petrobras?\"). Do not list every field on the badge — pick the one or two that make the conversation feel personal.",
+        "• If the badge text is blurry, too small, glare-covered, or partially out of frame, do NOT guess. Say something warm like \"I can almost see your badge — could you hold it a bit closer?\" and try again on the next frame.",
+        "• Never read a badge aloud character-by-character, never spell out IDs, QR codes, or numbers printed on it, and never mention that frames are arriving periodically — just behave like you're looking at the person.",
+        "Beyond badges: briefly acknowledge other obvious visual cues when relevant (a laptop sticker, a conference tote, a t-shirt logo) as natural conversational hooks, but keep voice-first priorities — short spoken replies, no describing the scene unprompted.",
+        "If the user explicitly asks what you see ('what am I holding?', 'what color is my shirt?'), answer from the latest frame confidently and concisely.",
+      ].join(" "),
+    });
+  }
+
   const llmConfig: Record<string, unknown> = {
     url: "https://api.openai.com/v1/chat/completions",
     api_key: openAiApiKey,
-    system_messages: [
-      { role: "system", content: params.systemPrompt },
-      {
-        role: "system",
-        content: `When the conversation begins, greet the user with exactly: "${params.greeting}"`,
-      },
-    ],
+    system_messages: systemMessages,
     greeting_message: params.greeting,
     max_history: 64,
     params: {
@@ -179,6 +208,13 @@ async function startConversationalAgent(params: {
   };
   if (mcpServers.length > 0) {
     llmConfig.mcp_servers = mcpServers;
+  }
+  // Flip the LLM into multimodal mode so it accepts frames pushed from
+  // the client via the toolkit's sendImage (RTM). The selected model
+  // (gpt-4o-mini by default) already supports vision. Agora's agent
+  // relays these as image content on the next LLM turn.
+  if (params.vision.enabled) {
+    llmConfig.input_modalities = ["text", "image"];
   }
 
   const buildJoinBody = (name: string) => ({
@@ -197,6 +233,7 @@ async function startConversationalAgent(params: {
         enable_metrics: true,
         enable_error_message: true,
         fixed_greeting: params.greeting,
+        audio_scenario: "chorus",
       },
       llm: llmConfig,
       asr: {
@@ -253,7 +290,7 @@ async function startConversationalAgent(params: {
     console.log(
       `[convai] POST /join name=${name} channel=${params.channelName} asr=${params.asrLanguage} mcp=${
         mcpServers.length > 0 ? "enabled" : "disabled"
-      } speed=${params.voiceSpeed}`,
+      } vision=${params.vision.enabled ? "enabled" : "disabled"} speed=${params.voiceSpeed}`,
     );
     return fetch(
       `https://api.agora.io/api/conversational-ai-agent/v2/projects/${params.appId}/join`,
@@ -305,6 +342,15 @@ async function startConversationalAgent(params: {
 
 export async function POST(request: Request) {
   try {
+    // Gate: the caller must be signed in (or in bypass mode locally).
+    const user = await getSessionUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: "Not authenticated." },
+        { status: 401 },
+      );
+    }
+
     const payload = (await request.json()) as StartSessionPayload;
 
     // Prefer credentials supplied by the client (BYO Agora account).
@@ -320,6 +366,18 @@ export async function POST(request: Request) {
             "Missing Agora credentials. Provide appId and appCertificate in the request, or set NEXT_PUBLIC_AGORA_APP_ID and AGORA_APP_CERTIFICATE on the server.",
         },
         { status: 400 },
+      );
+    }
+
+    // Reserve the user's remaining quota (or the per-session maximum,
+    // whichever is lower). Bypassed / unlimited users get a no-op
+    // reservation. If the user is out of time, bail before we spin up
+    // the agent.
+    const reservation = await reserve(user, quotaSecondsPerUser());
+    if (!reservation) {
+      return NextResponse.json(
+        { error: "quota_exhausted" },
+        { status: 402 },
       );
     }
 
@@ -354,6 +412,10 @@ export async function POST(request: Request) {
         ? { enabled: true, serverUrl: mcpInput.serverUrl.trim() }
         : { enabled: false };
 
+    const vision: VisionConfig = {
+      enabled: Boolean(payload.vision?.enabled),
+    };
+
     const agent = await startConversationalAgent({
       appId,
       appCertificate,
@@ -367,6 +429,7 @@ export async function POST(request: Request) {
         "Hi! I'm Yan's digital twin, powered by Agora's Conversational AI. Welcome to the IIMA Digital Tech Show! What would you like to know about Agora?",
       voiceSpeed: clampVoiceSpeed(payload.voiceSpeed),
       mcp,
+      vision,
       fillerPhrases:
         Array.isArray(payload.fillerPhrases) &&
         payload.fillerPhrases.every((p) => typeof p === "string" && p.trim()) &&
@@ -385,6 +448,10 @@ export async function POST(request: Request) {
       expiresAt: privilegeExpiredTs,
       systemPrompt: payload.systemPrompt ?? "",
       agent,
+      reservation: {
+        id: reservation.id,
+        seconds: reservation.seconds,
+      },
     });
   } catch (err) {
     console.error("[convai] /api/session/start failed:", err);

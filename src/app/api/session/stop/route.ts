@@ -1,12 +1,17 @@
 import { RtcRole, RtcTokenBuilder } from "agora-token";
 import { NextResponse } from "next/server";
 
+import { getSessionUser } from "@/lib/auth";
+import { commit } from "@/lib/quota";
+
 type StopSessionPayload = {
   agentId?: string;
   channelName?: string;
   userUid?: number | string;
   appId?: string;
   appCertificate?: string;
+  reservationId?: string;
+  elapsedSeconds?: number;
 };
 
 /**
@@ -21,6 +26,26 @@ export async function POST(request: Request) {
     const agentId = payload.agentId?.trim();
     const channelName = payload.channelName?.trim();
     const userUid = payload.userUid != null ? String(payload.userUid) : "";
+
+    // Commit the elapsed time against the user's quota (if authenticated).
+    // We do this regardless of whether /leave succeeds below — the
+    // user's time was spent either way.
+    const reservationId = payload.reservationId?.trim();
+    if (reservationId) {
+      const user = await getSessionUser();
+      if (user) {
+        const elapsed = Number.isFinite(payload.elapsedSeconds)
+          ? Math.max(0, Math.floor(payload.elapsedSeconds as number))
+          : 0;
+        try {
+          await commit(user, reservationId, elapsed);
+        } catch (err) {
+          // Non-fatal: we still want to kill the agent even if Redis
+          // is momentarily unreachable.
+          console.error("[quota] commit failed on /stop:", err);
+        }
+      }
+    }
 
     // Use the same credentials that started the session if the client
     // sent them, otherwise fall back to server env vars.

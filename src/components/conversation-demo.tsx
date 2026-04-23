@@ -4,7 +4,9 @@ import {
   Captions,
   CaptionsOff,
   ChevronRight,
+  Infinity as InfinityIcon,
   LoaderCircle,
+  LogOut,
   MessageSquare,
   Mic,
   MicOff,
@@ -13,7 +15,9 @@ import {
   RotateCcw,
   SendHorizontal,
   Settings2,
+  Timer,
   User,
+  Video,
   X
 } from "lucide-react";
 
@@ -39,6 +43,28 @@ const MIN_VOICE_SPEED = 0.7;
 const MAX_VOICE_SPEED = 1.2;
 const DEFAULT_MCP_SERVER_URL = "https://agorawebhooks.duckdns.org/mcp/sse";
 
+// How often to push a camera frame to the agent as `sendImage`.
+// Every few seconds keeps the visual context fresh without flooding the
+// LLM. Frames only flow while vision is on AND the call is connected.
+const VISION_FRAME_INTERVAL_MS = 3000;
+// Target dimensions + starting JPEG quality. Badges contain small
+// printed text (~15-20px cap height at arm's length), so we want as
+// much resolution as we can fit under the toolkit's ~32KB base64
+// message ceiling. Going bigger (1080p) forces the toolkit to chunk
+// the image across multiple RTM messages, which in practice arrived
+// corrupted/out-of-order and broke OCR — the agent could see shapes
+// but not read text. 960x720 single-packet is the sweet spot.
+const VISION_FRAME_MAX_WIDTH = 960;
+const VISION_FRAME_MAX_HEIGHT = 720;
+const VISION_FRAME_JPEG_QUALITY = 0.72;
+// Base64 size ceiling in bytes. Staying under ~28KB keeps first-try
+// delivery reliable across network conditions and avoids triggering
+// the toolkit's chunked-message path. Re-encode at lower quality if
+// we overshoot.
+const VISION_PAYLOAD_MAX_BYTES = 28 * 1024;
+const VISION_QUALITY_FLOOR = 0.35;
+const VISION_QUALITY_STEP = 0.1;
+
 type SessionResponse = {
   appId: string;
   channelName: string;
@@ -53,7 +79,33 @@ type SessionResponse = {
     agentRtcUid?: string;
     avatarRtcUid?: string;
   };
+  reservation?: {
+    id: string;
+    seconds: number;
+  };
 };
+
+type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+};
+
+type Me =
+  | {
+      authenticated: false;
+      authMode: "sso" | "bypass";
+    }
+  | {
+      authenticated: true;
+      authMode: "sso" | "bypass";
+      user: AuthUser;
+      unlimited: boolean;
+      bypass: boolean;
+      quotaSeconds: number;
+      usedSeconds: number;
+      remainingSeconds: number;
+    };
 
 type TranscriptMessage = {
   id: string;
@@ -66,6 +118,13 @@ type TranscriptMessage = {
  * Each TranscriptHelperItem is one bubble, keyed by (uid, turn_id),
  * with `text` that grows as the utterance evolves. Role = uid vs local uid.
  */
+function formatDuration(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
 function roleForItem(item: any, localUid: string): "user" | "assistant" {
   const itemUid = String(item?.uid ?? "");
   if (itemUid && itemUid === String(localUid)) return "user";
@@ -153,6 +212,7 @@ export function ConversationDemo() {
   const [voiceSpeed, setVoiceSpeed] = useState<number>(DEFAULT_VOICE_SPEED);
   const [mcpEnabled, setMcpEnabled] = useState<boolean>(true);
   const [mcpServerUrl, setMcpServerUrl] = useState<string>(DEFAULT_MCP_SERVER_URL);
+  const [visionEnabled, setVisionEnabled] = useState<boolean>(false);
   const [appId, setAppId] = useState<string>("");
   const [appCertificate, setAppCertificate] = useState<string>("");
   const [micDevices, setMicDevices] = useState<MicDevice[]>([]);
@@ -165,6 +225,14 @@ export function ConversationDemo() {
   const [showChat, setShowChat] = useState(true);
   const [showCaptions, setShowCaptions] = useState(false);
   const transcriptBottomRef = useRef<HTMLDivElement | null>(null);
+
+  // Auth + quota state. `me` is the server's view of who we are and
+  // how much time we have left; it's refetched after login and after
+  // each call so the countdown stays honest. While a call is live we
+  // tick `liveRemainingSeconds` locally every second for a smooth UI.
+  const [me, setMe] = useState<Me | null>(null);
+  const [liveRemainingSeconds, setLiveRemainingSeconds] = useState<number | null>(null);
+  const reservationRef = useRef<{ id: string; startedAt: number } | null>(null);
 
   // Hydrate overrides from localStorage once on mount. If a stored value
   // exists, treat the field as "touched" so locale changes don't clobber it.
@@ -195,6 +263,10 @@ export function ConversationDemo() {
       if (storedMcpUrl !== null && storedMcpUrl !== "") {
         setMcpServerUrl(storedMcpUrl);
       }
+      const storedVision = window.localStorage.getItem("yan.visionEnabled");
+      if (storedVision === "true" || storedVision === "false") {
+        setVisionEnabled(storedVision === "true");
+      }
       const storedMic = window.localStorage.getItem("yan.micDeviceId");
       if (storedMic !== null && storedMic !== "") {
         setSelectedMicDeviceId(storedMic);
@@ -211,6 +283,39 @@ export function ConversationDemo() {
       // storage unavailable — ignore
     }
   }, []);
+
+  // Fetch identity + quota. Called on mount, after any auth redirect,
+  // and whenever we finish a call (so the remaining-minutes chip updates).
+  const refreshMe = useCallback(async () => {
+    try {
+      const res = await fetch("/api/session/me", { cache: "no-store" });
+      if (!res.ok) {
+        setMe({ authenticated: false, authMode: "sso" });
+        return;
+      }
+      const data = (await res.json()) as Me;
+      setMe(data);
+    } catch (err) {
+      console.warn("[auth] /me failed", err);
+      setMe({ authenticated: false, authMode: "sso" });
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshMe();
+  }, [refreshMe]);
+
+  // If we just came back from the SSO callback with ?authError=..., surface
+  // it and strip the query param so a refresh doesn't keep showing it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const reason = url.searchParams.get("authError");
+    if (!reason) return;
+    setError(t.errors.authFailed(reason));
+    url.searchParams.delete("authError");
+    window.history.replaceState({}, "", url.toString());
+  }, [t.errors]);
 
   // Enumerate microphones. Labels are hidden until the user grants
   // microphone permission, so we re-enumerate after the call starts too
@@ -286,11 +391,14 @@ export function ConversationDemo() {
     appCertificate?: string;
   } | null>(null);
   const localAudioTrackRef = useRef<any>(null);
+  const localCameraTrackRef = useRef<any>(null);
+  const visionFrameHandleRef = useRef<number | null>(null);
   const agoraRtcRef = useRef<any>(null);
   const agoraRtmRef = useRef<any>(null);
   const rtmChannelRef = useRef<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const avatarVideoRef = useRef<HTMLDivElement | null>(null);
+  const selfViewRef = useRef<HTMLDivElement | null>(null);
   const applyTranscriptUpdate = useCallback((items: any[], localUid: string) => {
     // The toolkit delivers the full chat history as one item per
     // (uid, turn_id). In TEXT mode each item holds the final assembled
@@ -376,22 +484,177 @@ export function ConversationDemo() {
     setLiveCaption("");
   }, []);
 
+  // Capture a still frame from the <video> element the Agora camera
+  // track renders into, scale it down to a size that comfortably fits
+  // the toolkit's ~32KB base64 ceiling, and push it to the agent via
+  // RTM. Called on a short interval while vision is on.
+  const captureAndSendFrame = useCallback(async () => {
+    const voiceAi = voiceAiRef.current;
+    const agentUid = agentUidRef.current;
+    const cameraTrack = localCameraTrackRef.current;
+    const aiToolkit = aiToolkitRef.current;
+    if (!voiceAi || !agentUid || !cameraTrack || !aiToolkit) return;
+
+    const startedAt = performance.now();
+    try {
+      // Agora's camera track holds a MediaStreamTrack we can sample.
+      // `getMediaStreamTrack()` is the stable accessor across SDK versions.
+      const mediaTrack: MediaStreamTrack | undefined =
+        typeof cameraTrack.getMediaStreamTrack === "function"
+          ? cameraTrack.getMediaStreamTrack()
+          : undefined;
+      if (!mediaTrack) return;
+
+      // ImageCapture is the cleanest way to grab a frame without
+      // juggling <video> DOM nodes, but Safari still doesn't ship it.
+      // Fall back to a hidden <video> + <canvas> draw when it's missing.
+      let bitmap: ImageBitmap | null = null;
+      const ImageCaptureCtor = (window as unknown as {
+        ImageCapture?: new (track: MediaStreamTrack) => {
+          grabFrame: () => Promise<ImageBitmap>;
+        };
+      }).ImageCapture;
+      if (ImageCaptureCtor) {
+        try {
+          const capture = new ImageCaptureCtor(mediaTrack);
+          bitmap = await capture.grabFrame();
+        } catch {
+          bitmap = null;
+        }
+      }
+
+      let sourceWidth: number;
+      let sourceHeight: number;
+      let drawSource: CanvasImageSource;
+      let videoEl: HTMLVideoElement | null = null;
+
+      if (bitmap) {
+        sourceWidth = bitmap.width;
+        sourceHeight = bitmap.height;
+        drawSource = bitmap;
+      } else {
+        videoEl = document.createElement("video");
+        videoEl.muted = true;
+        videoEl.playsInline = true;
+        videoEl.srcObject = new MediaStream([mediaTrack]);
+        await videoEl.play().catch(() => {});
+        // Wait a tick so width/height populate.
+        if (!videoEl.videoWidth) {
+          await new Promise<void>((resolve) => {
+            const onLoaded = () => resolve();
+            videoEl?.addEventListener("loadedmetadata", onLoaded, { once: true });
+            window.setTimeout(resolve, 500);
+          });
+        }
+        sourceWidth = videoEl.videoWidth || VISION_FRAME_MAX_WIDTH;
+        sourceHeight = videoEl.videoHeight || VISION_FRAME_MAX_HEIGHT;
+        drawSource = videoEl;
+      }
+
+      const scale = Math.min(
+        1,
+        VISION_FRAME_MAX_WIDTH / sourceWidth,
+        VISION_FRAME_MAX_HEIGHT / sourceHeight,
+      );
+      const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+      const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        bitmap?.close?.();
+        videoEl?.remove();
+        return;
+      }
+      ctx.drawImage(drawSource, 0, 0, targetWidth, targetHeight);
+      bitmap?.close?.();
+      videoEl?.remove();
+
+      // Encode at target quality, then step quality down if the payload
+      // is over budget. Base64 length is deterministic from JPEG byte
+      // size (4/3 expansion) so we can use it directly as the ceiling.
+      let quality = VISION_FRAME_JPEG_QUALITY;
+      let base64 = canvas
+        .toDataURL("image/jpeg", quality)
+        .slice("data:image/jpeg;base64,".length);
+      let encodeAttempts = 1;
+      while (
+        base64.length > VISION_PAYLOAD_MAX_BYTES &&
+        quality > VISION_QUALITY_FLOOR
+      ) {
+        quality = Math.max(VISION_QUALITY_FLOOR, quality - VISION_QUALITY_STEP);
+        base64 = canvas
+          .toDataURL("image/jpeg", quality)
+          .slice("data:image/jpeg;base64,".length);
+        encodeAttempts += 1;
+      }
+
+      const { ChatMessageType } = aiToolkit;
+      const uuid = crypto.randomUUID();
+      await voiceAi.sendImage(agentUid, {
+        messageType: ChatMessageType.IMAGE,
+        uuid,
+        base64,
+      });
+
+      const payloadKb = Math.round(base64.length / 102.4) / 10;
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      console.log(
+        `[vision] frame sent → agent=${agentUid} uuid=${uuid.slice(0, 8)} size=${targetWidth}x${targetHeight} q=${quality.toFixed(2)}${encodeAttempts > 1 ? ` (${encodeAttempts} encodes)` : ""} payload=${payloadKb}KB elapsed=${elapsedMs}ms source=${bitmap ? "ImageCapture" : "video"}`,
+      );
+    } catch (err) {
+      console.warn("[vision] failed to send frame", err);
+    }
+  }, []);
+
+  const stopVisionFrameLoop = useCallback(() => {
+    if (visionFrameHandleRef.current !== null) {
+      window.clearInterval(visionFrameHandleRef.current);
+      visionFrameHandleRef.current = null;
+    }
+  }, []);
+
+  const startVisionFrameLoop = useCallback(() => {
+    stopVisionFrameLoop();
+    // Kick one frame immediately so the first visible context lands
+    // before the first interval fires.
+    void captureAndSendFrame();
+    visionFrameHandleRef.current = window.setInterval(() => {
+      void captureAndSendFrame();
+    }, VISION_FRAME_INTERVAL_MS);
+  }, [captureAndSendFrame, stopVisionFrameLoop]);
+
   const cleanupSession = useCallback(async () => {
     stopSpeechRecognition();
+    stopVisionFrameLoop();
 
     // Tear down the ConvAI agent server-side so it stops running (and
     // billing) instead of waiting for its session timeout. Fire-and-forget
     // with a short timeout so a slow leave call doesn't block UI teardown.
     const agentSession = agentSessionRef.current;
-    if (agentSession) {
+    const reservation = reservationRef.current;
+    reservationRef.current = null;
+    if (agentSession || reservation) {
       agentSessionRef.current = null;
+      const stopBody = {
+        ...(agentSession ?? {}),
+        reservationId: reservation?.id,
+        elapsedSeconds: reservation
+          ? Math.max(
+              0,
+              Math.floor((Date.now() - reservation.startedAt) / 1000),
+            )
+          : 0,
+      };
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 4000);
         await fetch("/api/session/stop", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(agentSession),
+          body: JSON.stringify(stopBody),
           signal: controller.signal,
           keepalive: true
         }).catch((err) => {
@@ -401,6 +664,8 @@ export function ConversationDemo() {
       } catch (err) {
         console.warn("[convai] stop request threw", err);
       }
+      // Refresh the quota chip so the remaining-minutes readout is accurate.
+      void refreshMe();
     }
 
     const client = clientRef.current;
@@ -426,6 +691,15 @@ export function ConversationDemo() {
       localAudioTrackRef.current.close();
       localAudioTrackRef.current = null;
     }
+    if (localCameraTrackRef.current) {
+      try {
+        localCameraTrackRef.current.stop();
+        localCameraTrackRef.current.close();
+      } catch {
+        // already stopped
+      }
+      localCameraTrackRef.current = null;
+    }
     if (client) {
       await client.leave();
       clientRef.current = null;
@@ -435,7 +709,10 @@ export function ConversationDemo() {
     if (avatarVideoRef.current) {
       avatarVideoRef.current.innerHTML = "";
     }
-  }, [stopSpeechRecognition]);
+    if (selfViewRef.current) {
+      selfViewRef.current.innerHTML = "";
+    }
+  }, [refreshMe, stopSpeechRecognition, stopVisionFrameLoop]);
 
   const startCall = useCallback(async () => {
     setError(null);
@@ -456,16 +733,38 @@ export function ConversationDemo() {
           appCertificate: appCertificate.trim() || undefined,
           mcp: mcpEnabled && mcpServerUrl.trim()
             ? { enabled: true, serverUrl: mcpServerUrl.trim() }
-            : { enabled: false }
+            : { enabled: false },
+          vision: { enabled: visionEnabled }
         })
       });
 
       if (!startRes.ok) {
         const payload = (await startRes.json().catch(() => ({}))) as { error?: string };
+        // 402 = out of quota, 401 = session cookie missing/expired. Translate
+        // both into user-friendly messages before bailing.
+        if (startRes.status === 402 || payload.error === "quota_exhausted") {
+          await refreshMe();
+          setStatus("idle");
+          throw new Error(t.errors.quotaExhausted);
+        }
+        if (startRes.status === 401) {
+          await refreshMe();
+          setStatus("idle");
+          throw new Error(t.errors.notAuthenticated);
+        }
         throw new Error(payload.error ?? t.errors.startFailed);
       }
 
       const session = (await startRes.json()) as SessionResponse;
+
+      // Record the reservation so heartbeats and /stop can report the
+      // elapsed time against the right bucket.
+      if (session.reservation?.id) {
+        reservationRef.current = {
+          id: session.reservation.id,
+          startedAt: Date.now(),
+        };
+      }
 
       // Remember the agent session so we can hit /api/session/stop later
       // and explicitly tear down the Agora Conversational AI agent.
@@ -579,6 +878,29 @@ export function ConversationDemo() {
       localAudioTrackRef.current = track;
       await client.publish([track]);
 
+      // Open the camera locally (best-effort). We deliberately do NOT
+      // publish it to the RTC channel — the agent gets visual context
+      // exclusively through sendImage over RTM. Publishing would
+      // broadcast the user's camera to every other participant (none
+      // today, but a footgun waiting to happen) and waste upstream
+      // bandwidth on a stream nothing consumes. Failure must not kill
+      // the voice call.
+      if (visionEnabled) {
+        try {
+          const cameraTrack = await AgoraRTC.createCameraVideoTrack({
+            encoderConfig: "720p_1",
+          });
+          localCameraTrackRef.current = cameraTrack;
+          if (selfViewRef.current) {
+            cameraTrack.play(selfViewRef.current, { mirror: true });
+          }
+          startVisionFrameLoop();
+        } catch (camErr) {
+          console.warn("[vision] camera capture failed", camErr);
+          setError(t.settings.visionCameraError);
+        }
+      }
+
       setStatus("connected");
       setupSpeechRecognition();
     } catch (err) {
@@ -595,11 +917,17 @@ export function ConversationDemo() {
     localeMeta.speechLang,
     mcpEnabled,
     mcpServerUrl,
+    refreshMe,
     selectedMicDeviceId,
     setupSpeechRecognition,
+    startVisionFrameLoop,
     systemPrompt,
+    t.errors.notAuthenticated,
+    t.errors.quotaExhausted,
     t.errors.startFailed,
     t.fillerPhrases,
+    t.settings.visionCameraError,
+    visionEnabled,
     voiceSpeed
   ]);
 
@@ -639,6 +967,7 @@ export function ConversationDemo() {
     setVoiceSpeed(DEFAULT_VOICE_SPEED);
     setMcpEnabled(true);
     setMcpServerUrl(DEFAULT_MCP_SERVER_URL);
+    setVisionEnabled(false);
     systemPromptTouchedRef.current = false;
     greetingTouchedRef.current = false;
 
@@ -648,6 +977,7 @@ export function ConversationDemo() {
       window.localStorage.removeItem("yan.voiceSpeed");
       window.localStorage.removeItem("yan.mcpEnabled");
       window.localStorage.removeItem("yan.mcpServerUrl");
+      window.localStorage.removeItem("yan.visionEnabled");
     } catch {
       // ignore storage errors
     }
@@ -699,9 +1029,20 @@ export function ConversationDemo() {
     if (typeof window === "undefined") return;
     const stopOnUnload = () => {
       const session = agentSessionRef.current;
-      if (!session) return;
+      const reservation = reservationRef.current;
+      if (!session && !reservation) return;
       try {
-        const blob = new Blob([JSON.stringify(session)], {
+        const body = {
+          ...(session ?? {}),
+          reservationId: reservation?.id,
+          elapsedSeconds: reservation
+            ? Math.max(
+                0,
+                Math.floor((Date.now() - reservation.startedAt) / 1000),
+              )
+            : 0,
+        };
+        const blob = new Blob([JSON.stringify(body)], {
           type: "application/json"
         });
         navigator.sendBeacon?.("/api/session/stop", blob);
@@ -721,9 +1062,118 @@ export function ConversationDemo() {
     transcriptBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [transcript]);
 
+  // While a call is live and the account is quota-limited, tick a local
+  // countdown every second (smooth UI) and send a heartbeat every 30s
+  // (keeps the server-side reservation alive). When the countdown hits
+  // zero we end the call automatically so we don't run past the budget.
+  useEffect(() => {
+    if (status !== "connected") {
+      setLiveRemainingSeconds(null);
+      return;
+    }
+    if (!me || !me.authenticated || me.unlimited) {
+      setLiveRemainingSeconds(null);
+      return;
+    }
+    const startedAt = reservationRef.current?.startedAt ?? Date.now();
+    const initialRemaining = me.remainingSeconds;
+    setLiveRemainingSeconds(initialRemaining);
+
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      const remaining = Math.max(0, initialRemaining - elapsed);
+      setLiveRemainingSeconds(remaining);
+      if (remaining <= 0) {
+        void cleanupSession();
+      }
+    };
+    const tickHandle = window.setInterval(tick, 1000);
+
+    const heartbeatHandle = window.setInterval(() => {
+      const reservation = reservationRef.current;
+      if (!reservation) return;
+      void fetch("/api/session/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: reservation.id }),
+      }).catch(() => {
+        // Best-effort; the reservation TTL is long enough that a
+        // temporary network glitch won't kill the session.
+      });
+    }, 30_000);
+
+    return () => {
+      window.clearInterval(tickHandle);
+      window.clearInterval(heartbeatHandle);
+    };
+  }, [cleanupSession, me, status]);
+
+  const handleSignIn = useCallback(() => {
+    window.location.href = "/api/auth/agora/start";
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/agora/logout", { method: "POST" });
+      const payload = (await res.json().catch(() => ({}))) as {
+        redirect?: string;
+      };
+      window.location.href = payload.redirect ?? "/";
+    } catch {
+      window.location.href = "/";
+    }
+  }, []);
+
   const isIdle = status === "idle";
   const isConnecting = status === "connecting";
   const isConnected = status === "connected";
+
+  // Derived quota display: use the live countdown when a call is in
+  // progress, otherwise the last value /api/session/me returned.
+  const effectiveRemainingSeconds =
+    me?.authenticated && !me.unlimited
+      ? liveRemainingSeconds ?? me.remainingSeconds
+      : null;
+  const quotaExhausted =
+    !!me &&
+    me.authenticated &&
+    !me.unlimited &&
+    effectiveRemainingSeconds !== null &&
+    effectiveRemainingSeconds <= 0 &&
+    status === "idle";
+  const canStart =
+    !!me &&
+    me.authenticated &&
+    hasCredentials &&
+    (me.unlimited ||
+      (effectiveRemainingSeconds ?? 0) > 0);
+
+  // While we're still fetching identity, avoid a login flash.
+  if (me === null) {
+    return (
+      <main className="flex h-screen w-screen items-center justify-center text-slate-400">
+        <LoaderCircle className="h-5 w-5 animate-spin" />
+      </main>
+    );
+  }
+
+  if (!me.authenticated) {
+    return (
+      <main className="flex h-screen w-screen items-center justify-center px-4 text-slate-100">
+        <div className="flex max-w-md flex-col items-center gap-6 text-center">
+          <AgoraLogo className="h-10 w-auto" />
+          <div className="space-y-2">
+            <h1 className="text-2xl font-semibold">{t.auth.signInTitle}</h1>
+            <p className="text-sm text-slate-400">{t.auth.signInSubtitle}</p>
+          </div>
+          <Button size="lg" onClick={handleSignIn} className="w-full">
+            {t.auth.signInButton}
+          </Button>
+          <p className="text-xs text-slate-500">{t.auth.signInNote}</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex h-screen w-screen flex-col overflow-hidden text-slate-100">
@@ -737,6 +1187,46 @@ export function ConversationDemo() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Quota chip: "Unlimited" / "Dev mode" for bypass, else "M:SS left". */}
+          {me.unlimited ? (
+            <Badge variant="default" className="gap-1">
+              {me.authMode === "bypass" ? (
+                <>
+                  <Timer className="h-3 w-3" />
+                  {t.auth.devMode}
+                </>
+              ) : (
+                <>
+                  <InfinityIcon className="h-3 w-3" />
+                  {t.auth.unlimited}
+                </>
+              )}
+            </Badge>
+          ) : effectiveRemainingSeconds !== null ? (
+            <Badge
+              variant={effectiveRemainingSeconds <= 60 ? "danger" : "default"}
+              className="gap-1"
+            >
+              <Timer className="h-3 w-3" />
+              {t.auth.minutesLeft(formatDuration(effectiveRemainingSeconds))}
+            </Badge>
+          ) : null}
+          {/* User chip + sign out */}
+          <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-slate-900/70 px-3 py-1 text-xs text-slate-300 md:flex">
+            <User className="h-3.5 w-3.5" />
+            <span className="max-w-[160px] truncate">
+              {me.user.email || me.user.name || me.user.id}
+            </span>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="rounded-full p-1 text-slate-400 transition hover:bg-white/10 hover:text-white"
+              title={t.auth.signOut}
+              aria-label={t.auth.signOut}
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          </div>
           {connectionBadge}
           {isConnected ? (
             <Badge variant="default" className="uppercase tracking-wide">
@@ -764,11 +1254,22 @@ export function ConversationDemo() {
             <div ref={avatarVideoRef} className="absolute inset-0 h-full w-full" />
             {/* Placeholder when no video yet */}
             {!isConnected ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-gradient-to-b from-slate-900/40 via-slate-950/60 to-black/80">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-gradient-to-b from-slate-900/40 via-slate-950/60 to-black/80 px-6 text-center">
                 <AgoraLogo className="h-14 w-auto drop-shadow-[0_0_24px_rgba(0,194,255,0.25)]" />
-                <p className="text-sm text-slate-300">
-                  {isConnecting ? t.stage.connecting : t.stage.pressStart}
-                </p>
+                {quotaExhausted ? (
+                  <div className="max-w-sm space-y-2">
+                    <p className="text-base font-semibold text-slate-100">
+                      {t.auth.quotaExhaustedTitle}
+                    </p>
+                    <p className="text-sm text-slate-400">
+                      {t.auth.quotaExhaustedBody}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-300">
+                    {isConnecting ? t.stage.connecting : t.stage.pressStart}
+                  </p>
+                )}
               </div>
             ) : null}
 
@@ -780,6 +1281,17 @@ export function ConversationDemo() {
                 <span className="ml-1 h-1.5 w-1.5 rounded-full bg-[color:var(--agora-blue)] shadow-[0_0_8px_rgba(0,194,255,0.85)]" />
               ) : null}
             </div>
+
+            {/* Self-view PIP — only rendered while the camera is on so
+                the user has a clear signal that they're being filmed. */}
+            <div
+              ref={selfViewRef}
+              className={cn(
+                "absolute bottom-4 right-4 h-28 w-36 overflow-hidden rounded-xl border border-white/10 bg-black/60 shadow-lg backdrop-blur-sm md:h-32 md:w-44",
+                visionEnabled && isConnected ? "block" : "hidden"
+              )}
+              aria-hidden="true"
+            />
 
             {/* Caption overlay */}
             {showCaptions && latestAssistantLine ? (
@@ -1124,6 +1636,30 @@ export function ConversationDemo() {
                   <p className="text-xs text-slate-500">{t.settings.mcpHint}</p>
                 </div>
                 <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
+                      <Video className="h-3.5 w-3.5" />
+                      {t.settings.vision}
+                    </p>
+                    <label className="flex items-center gap-2 text-xs text-slate-300">
+                      <span>{t.settings.visionEnable}</span>
+                      <Switch
+                        checked={visionEnabled}
+                        onCheckedChange={(next) => {
+                          setVisionEnabled(next);
+                          try {
+                            window.localStorage.setItem("yan.visionEnabled", String(next));
+                          } catch {
+                            // ignore storage errors
+                          }
+                        }}
+                        aria-label={t.settings.visionEnable}
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-500">{t.settings.visionHint}</p>
+                </div>
+                <div className="space-y-2">
                   <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                     {t.settings.systemPrompt}
                   </p>
@@ -1211,10 +1747,20 @@ export function ConversationDemo() {
                   setShowSettings(true);
                   return;
                 }
+                if (quotaExhausted) {
+                  setError(t.errors.quotaExhausted);
+                  return;
+                }
                 void startCall();
               }}
-              disabled={isConnecting}
-              title={!hasCredentials ? t.settings.credentialsRequired : undefined}
+              disabled={isConnecting || !canStart}
+              title={
+                !hasCredentials
+                  ? t.settings.credentialsRequired
+                  : quotaExhausted
+                    ? t.errors.quotaExhausted
+                    : undefined
+              }
             >
               {isConnecting ? (
                 <>

@@ -18,9 +18,13 @@ of Yan, Agora's developer relations rep in Brazil.
   Agora docs MCP for live doc lookups)
 - **Natural-sounding filler words** while the LLM/MCP takes a moment
 - **Microphone device picker** with hot-swap during a call
-- **Internationalization** — English and Português (Brasil), user-switchable
+- **Internationalization** — English, Português (Brasil), and Español (México),
+  user-switchable
 - **Bring-your-own Agora account** — App ID + Certificate stored locally in
   the browser, never persisted on the server
+- **Agora SSO** — visitors sign in with their Agora account; no account, no demo
+- **Per-user time budget** — 10 minutes per Agora account, tracked in Upstash
+  Redis (configurable; allowlist supported for live demos)
 - **Agora-branded UI** — dark palette, glass surfaces, cyan accents
 
 ## Quick start
@@ -67,6 +71,40 @@ Two modes are supported:
 
 Get them at [console.agora.io](https://console.agora.io) → Project Management.
 
+#### Agora SSO (required for production)
+
+For the public deployment we restrict usage to people with an Agora account.
+Request these credentials from the Agora SSO admin (`sunmingda`) and share
+your callback URL `https://<your-domain>/api/auth/agora/callback`:
+
+- `AGORA_SSO_CLIENT_ID`
+- `AGORA_SSO_CLIENT_SECRET`
+- `AGORA_SSO_REDIRECT_URI` — must match the callback URL you shared
+
+Also required:
+
+- `SESSION_JWT_SECRET` — 32+ random chars. Generate with `openssl rand -hex 48`.
+
+#### Upstash Redis (quota storage)
+
+The per-user minute budget is tracked in Upstash Redis. On Vercel, open
+the project → **Storage** → **Marketplace** → **Upstash for Redis** →
+**Link**. The `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
+env vars are injected automatically.
+
+For local dev, either:
+
+- Create a free database at [upstash.com](https://upstash.com/) and paste
+  the REST URL + token into `.env.local`, **or**
+- Set `AUTH_MODE=bypass` in `.env.local` to skip SSO + quota entirely
+  (treated as a synthetic dev user; ignored in production).
+
+#### Quota settings
+
+- `DEMO_QUOTA_SECONDS` — per-account budget in seconds (default `600` = 10 min).
+- `QUOTA_BYPASS_ACCOUNTS` — comma-separated list of Agora user ids or emails
+  that get an "Unlimited" badge. Useful for the people running the demo live.
+
 ### 3. Run
 
 ```bash
@@ -100,12 +138,21 @@ Open [http://localhost:4000](http://localhost:4000).
   with the full agent config (LLM, TTS, avatar, MCP servers, ASR language,
   filler words, etc.).
 - `src/app/api/session/stop/route.ts` — tears down the agent via
-  `POST /api/conversational-ai-agent/v2/projects/{appId}/agents/{agentId}/leave`.
-  Called on end-call, page unload (via `navigator.sendBeacon`), and component
-  unmount. Without this, the agent would keep running until it times out.
+  `POST /api/conversational-ai-agent/v2/projects/{appId}/agents/{agentId}/leave`
+  and commits the elapsed time against the user's quota. Called on end-call,
+  page unload (via `navigator.sendBeacon`), and component unmount. Without
+  this, the agent would keep running until it times out.
+- `src/app/api/session/me/route.ts` — returns the current user + remaining
+  quota so the UI can render the countdown chip.
+- `src/app/api/session/heartbeat/route.ts` — keepalive hit by the client
+  every 30s while a call is live, so abandoned sessions can be GC'd.
+- `src/app/api/auth/agora/*` — SSO start / callback / logout routes.
 - `src/app/api/assistant/respond/route.ts` — fallback path for typed messages.
 - `src/components/conversation-demo.tsx` — the React client: RTC join, RTM
-  subscribe, transcript state, settings drawer, captions, mic picker.
+  subscribe, transcript state, settings drawer, captions, mic picker,
+  sign-in gate, quota chip, heartbeat loop.
+- `src/lib/auth.ts` / `src/lib/agora-sso.ts` — session JWTs + Agora OAuth.
+- `src/lib/quota.ts` — reserve-then-commit time budgeting against Upstash Redis.
 - `src/lib/i18n.tsx` — tiny dictionary-based i18n with `localStorage`
   persistence. System prompt and greeting are per-locale so the agent speaks
   the user's language.
@@ -146,6 +193,8 @@ For a public deployment:
 - [`agora-rtm`](https://www.npmjs.com/package/agora-rtm) — signaling / transcripts
 - [`agora-agent-client-toolkit`](https://www.npmjs.com/package/agora-agent-client-toolkit) — transcript helpers
 - [`agora-token`](https://www.npmjs.com/package/agora-token) — server-side token builder
+- [`@upstash/redis`](https://www.npmjs.com/package/@upstash/redis) — serverless Redis client for quota storage
+- [`jose`](https://www.npmjs.com/package/jose) — JWT sign/verify for session cookies
 
 ## License
 
