@@ -44,26 +44,39 @@ const MAX_VOICE_SPEED = 1.2;
 const DEFAULT_MCP_SERVER_URL = "https://agorawebhooks.duckdns.org/mcp/sse";
 
 // How often to push a camera frame to the agent as `sendImage`.
-// Every few seconds keeps the visual context fresh without flooding the
-// LLM. Frames only flow while vision is on AND the call is connected.
+// Every few seconds keeps the visual context fresh without flooding
+// the LLM. Frames only flow while vision is on AND the call is
+// connected.
 const VISION_FRAME_INTERVAL_MS = 3000;
-// Target dimensions + starting JPEG quality. Badges contain small
-// printed text (~15-20px cap height at arm's length), so we want as
-// much resolution as we can fit under the toolkit's ~32KB base64
-// message ceiling. Going bigger (1080p) forces the toolkit to chunk
-// the image across multiple RTM messages, which in practice arrived
-// corrupted/out-of-order and broke OCR — the agent could see shapes
-// but not read text. 960x720 single-packet is the sweet spot.
-const VISION_FRAME_MAX_WIDTH = 960;
-const VISION_FRAME_MAX_HEIGHT = 720;
-const VISION_FRAME_JPEG_QUALITY = 0.72;
-// Base64 size ceiling in bytes. Staying under ~28KB keeps first-try
-// delivery reliable across network conditions and avoids triggering
-// the toolkit's chunked-message path. Re-encode at lower quality if
-// we overshoot.
-const VISION_PAYLOAD_MAX_BYTES = 28 * 1024;
-const VISION_QUALITY_FLOOR = 0.35;
-const VISION_QUALITY_STEP = 0.1;
+
+// Agora RTM v2 rejects any single publish whose serialized body
+// exceeds 32768 bytes (error -11010 "publish too long message").
+// The toolkit's sendImage wraps our base64 in the envelope
+// {"uuid":"…","image_url":"","image_base64":"…"} and publishes that
+// whole string in one shot — there is NO chunked send path.
+// 31KB is the hard cap we must stay under, accounting for:
+//   ~60 bytes of JSON envelope + field names + the 36-char uuid
+//   ~700 bytes RTM internal framing/headers
+const VISION_MAX_PUBLISH_BYTES = 31 * 1024;
+
+// We try decreasing (width, height, qualityStart) triples in order
+// and take the first one whose JSON payload fits under
+// VISION_MAX_PUBLISH_BYTES. Each candidate internally also steps
+// quality down toward its floor before giving up. Badge legibility
+// drives the size — cap text is roughly 8-10px at 480x360, ~16-20px
+// at 960x720 (readable by gpt-4o-mini), so 960x720 is what we lead
+// with and only back off when the scene is too dense to fit.
+const VISION_FRAME_CANDIDATES: ReadonlyArray<{
+  width: number;
+  height: number;
+  qualityStart: number;
+  qualityFloor: number;
+}> = [
+  { width: 960, height: 720, qualityStart: 0.72, qualityFloor: 0.45 },
+  { width: 800, height: 600, qualityStart: 0.6, qualityFloor: 0.4 },
+  { width: 640, height: 480, qualityStart: 0.55, qualityFloor: 0.35 },
+];
+const VISION_QUALITY_STEP = 0.08;
 
 type SessionResponse = {
   appId: string;
@@ -546,63 +559,85 @@ export function ConversationDemo() {
             window.setTimeout(resolve, 500);
           });
         }
-        sourceWidth = videoEl.videoWidth || VISION_FRAME_MAX_WIDTH;
-        sourceHeight = videoEl.videoHeight || VISION_FRAME_MAX_HEIGHT;
+        sourceWidth = videoEl.videoWidth || VISION_FRAME_CANDIDATES[0].width;
+        sourceHeight = videoEl.videoHeight || VISION_FRAME_CANDIDATES[0].height;
         drawSource = videoEl;
       }
 
-      const scale = Math.min(
-        1,
-        VISION_FRAME_MAX_WIDTH / sourceWidth,
-        VISION_FRAME_MAX_HEIGHT / sourceHeight,
-      );
-      const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
-      const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+      const uuid = crypto.randomUUID();
+      // Worst-case overhead of the toolkit's publish envelope:
+      //   {"uuid":"<36>","image_url":"","image_base64":"<b64>"}
+      // The outer RTM layer adds its own framing on top; we reserve
+      // 768 bytes for that to be safe.
+      const envelopeOverhead =
+        JSON.stringify({ uuid, image_url: "", image_base64: "" }).length + 768;
+      const base64Budget = VISION_MAX_PUBLISH_BYTES - envelopeOverhead;
 
-      const canvas = document.createElement("canvas");
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        bitmap?.close?.();
-        videoEl?.remove();
-        return;
+      let chosenBase64: string | null = null;
+      let chosenWidth = 0;
+      let chosenHeight = 0;
+      let chosenQuality = 0;
+      let totalEncodeAttempts = 0;
+
+      for (const candidate of VISION_FRAME_CANDIDATES) {
+        const scale = Math.min(
+          1,
+          candidate.width / sourceWidth,
+          candidate.height / sourceHeight,
+        );
+        const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+        const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) continue;
+        ctx.drawImage(drawSource, 0, 0, targetWidth, targetHeight);
+
+        let quality = candidate.qualityStart;
+        while (quality >= candidate.qualityFloor - 1e-6) {
+          const base64 = canvas
+            .toDataURL("image/jpeg", quality)
+            .slice("data:image/jpeg;base64,".length);
+          totalEncodeAttempts += 1;
+          if (base64.length <= base64Budget) {
+            chosenBase64 = base64;
+            chosenWidth = targetWidth;
+            chosenHeight = targetHeight;
+            chosenQuality = quality;
+            break;
+          }
+          quality -= VISION_QUALITY_STEP;
+        }
+
+        if (chosenBase64) break;
       }
-      ctx.drawImage(drawSource, 0, 0, targetWidth, targetHeight);
+
       bitmap?.close?.();
       videoEl?.remove();
 
-      // Encode at target quality, then step quality down if the payload
-      // is over budget. Base64 length is deterministic from JPEG byte
-      // size (4/3 expansion) so we can use it directly as the ceiling.
-      let quality = VISION_FRAME_JPEG_QUALITY;
-      let base64 = canvas
-        .toDataURL("image/jpeg", quality)
-        .slice("data:image/jpeg;base64,".length);
-      let encodeAttempts = 1;
-      while (
-        base64.length > VISION_PAYLOAD_MAX_BYTES &&
-        quality > VISION_QUALITY_FLOOR
-      ) {
-        quality = Math.max(VISION_QUALITY_FLOOR, quality - VISION_QUALITY_STEP);
-        base64 = canvas
-          .toDataURL("image/jpeg", quality)
-          .slice("data:image/jpeg;base64,".length);
-        encodeAttempts += 1;
+      if (!chosenBase64) {
+        // Every candidate produced a payload over the RTM ceiling.
+        // Skip this frame — better to drop it than to trigger the
+        // RTM -11010 error that would nuke the whole publish.
+        console.warn(
+          `[vision] skip frame: no encoding fit under ${base64Budget}B after ${totalEncodeAttempts} attempts`,
+        );
+        return;
       }
 
       const { ChatMessageType } = aiToolkit;
-      const uuid = crypto.randomUUID();
       await voiceAi.sendImage(agentUid, {
         messageType: ChatMessageType.IMAGE,
         uuid,
-        base64,
+        base64: chosenBase64,
       });
 
-      const payloadKb = Math.round(base64.length / 102.4) / 10;
+      const payloadKb = Math.round(chosenBase64.length / 102.4) / 10;
       const elapsedMs = Math.round(performance.now() - startedAt);
       console.log(
-        `[vision] frame sent → agent=${agentUid} uuid=${uuid.slice(0, 8)} size=${targetWidth}x${targetHeight} q=${quality.toFixed(2)}${encodeAttempts > 1 ? ` (${encodeAttempts} encodes)` : ""} payload=${payloadKb}KB elapsed=${elapsedMs}ms source=${bitmap ? "ImageCapture" : "video"}`,
+        `[vision] frame sent → agent=${agentUid} uuid=${uuid.slice(0, 8)} size=${chosenWidth}x${chosenHeight} q=${chosenQuality.toFixed(2)} encodes=${totalEncodeAttempts} payload=${payloadKb}KB elapsed=${elapsedMs}ms source=${bitmap ? "ImageCapture" : "video"}`,
       );
     } catch (err) {
       console.warn("[vision] failed to send frame", err);
