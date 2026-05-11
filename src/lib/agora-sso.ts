@@ -112,25 +112,36 @@ export type AgoraCustomer = {
 export async function fetchCustomer(
   accessToken: string,
 ): Promise<AgoraCustomer> {
-  // Agora hasn't published a single canonical "userinfo" endpoint for
-  // SSO. The token endpoint that works is
-  // `${ssoBaseUrl}/api/v0/oauth/token`, so the profile endpoint is
-  // almost certainly on the same host under /api/v0/... We probe the
-  // standard OAuth 2.0 names plus a few Agora-specific patterns and
-  // stop at the first one that returns a usable payload. Each miss is
-  // logged so we can converge on the right URL from Vercel logs.
+  // We've learned from prior probes:
+  //   - sso2.agora.io/api/v0/* endpoints all 401 with
+  //     `redirectToLoginPage:true` — that host wants its own browser
+  //     session cookie, not an OAuth bearer token. So the OAuth
+  //     resource server is a *different* host.
+  //   - sso-open.agora.io/api-docs/v1/* returns 404 / HTML — that path
+  //     is the Swagger docs site, not a live API.
+  // The real resource server is almost certainly sso-open.agora.io
+  // under /api/v1 or /api/v0 (dropping "-docs"). Probe both, plus a
+  // few neighboring hosts Agora uses for OpenAPI surfaces.
   const base = ssoBaseUrl();
   const openBase = ssoOpenApiBase();
+  const openHost = (() => {
+    try {
+      return new URL(openBase).origin;
+    } catch {
+      return "https://sso-open.agora.io";
+    }
+  })();
   const candidates = [
+    `${openHost}/api/v1/customer/info`,
+    `${openHost}/api/v1/customer`,
+    `${openHost}/api/v1/customer/me`,
+    `${openHost}/api/v0/customer/info`,
+    `${openHost}/api/v0/customer`,
+    `${openHost}/api/v1/user/info`,
+    `${openHost}/api/v1/userinfo`,
+    `${openHost}/oauth/userinfo`,
     `${base}/api/v0/oauth/userinfo`,
-    `${base}/api/v0/userinfo`,
-    `${base}/api/v0/user/info`,
-    `${base}/api/v0/user/me`,
-    `${base}/api/v0/customer/info`,
-    `${base}/api/v0/customer`,
     `${openBase}/customer/info`,
-    `${openBase}/customer`,
-    `${openBase}/customer/me`,
   ];
   let lastError: string | null = null;
   for (const url of candidates) {
