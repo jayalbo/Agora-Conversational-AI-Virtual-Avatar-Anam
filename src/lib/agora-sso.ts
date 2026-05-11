@@ -112,17 +112,13 @@ export type AgoraCustomer = {
 export async function fetchCustomer(
   accessToken: string,
 ): Promise<AgoraCustomer> {
-  // We've learned from prior probes:
-  //   - sso2.agora.io/api/v0/* endpoints all 401 with
-  //     `redirectToLoginPage:true` — that host wants its own browser
-  //     session cookie, not an OAuth bearer token. So the OAuth
-  //     resource server is a *different* host.
-  //   - sso-open.agora.io/api-docs/v1/* returns 404 / HTML — that path
-  //     is the Swagger docs site, not a live API.
-  // The real resource server is almost certainly sso-open.agora.io
-  // under /api/v1 or /api/v0 (dropping "-docs"). Probe both, plus a
-  // few neighboring hosts Agora uses for OpenAPI surfaces.
-  const base = ssoBaseUrl();
+  // Confirmed endpoints from Agora's customer OpenAPI doc at
+  // https://sso-open.agora.io/api-docs/v1/customer
+  //
+  // The doc URL itself returns Swagger UI (HTML), but the live API
+  // endpoints live at `/api/v0/customer/*` on the same host. We try
+  // user-auth first (the closest thing to OIDC /userinfo) and fall
+  // back to company/basic-info for richer profile fields.
   const openBase = ssoOpenApiBase();
   const openHost = (() => {
     try {
@@ -132,16 +128,8 @@ export async function fetchCustomer(
     }
   })();
   const candidates = [
-    `${openHost}/api/v1/customer/info`,
-    `${openHost}/api/v1/customer`,
-    `${openHost}/api/v1/customer/me`,
-    `${openHost}/api/v0/customer/info`,
-    `${openHost}/api/v0/customer`,
-    `${openHost}/api/v1/user/info`,
-    `${openHost}/api/v1/userinfo`,
-    `${openHost}/oauth/userinfo`,
-    `${base}/api/v0/oauth/userinfo`,
-    `${openBase}/customer/info`,
+    `${openHost}/api/v0/customer/user-auth`,
+    `${openHost}/api/v0/customer/company/basic-info`,
   ];
   let lastError: string | null = null;
   for (const url of candidates) {
@@ -164,7 +152,7 @@ export async function fetchCustomer(
       console.log(
         `[sso] customer probe hit ${url}, top-level keys=${JSON.stringify(
           Object.keys(json),
-        )}`,
+        )}, body=${JSON.stringify(json).slice(0, 500)}`,
       );
       // Agora usually wraps responses in `{ code, message, data }`.
       const data =
