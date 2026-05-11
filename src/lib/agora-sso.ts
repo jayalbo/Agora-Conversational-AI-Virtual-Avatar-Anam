@@ -114,7 +114,9 @@ export async function fetchCustomer(
 ): Promise<AgoraCustomer> {
   // The OpenAPI path under sso-open.agora.io is /customer but different
   // Agora deployments have exposed it under different sub-paths. We try
-  // the most likely endpoints in order and stop at the first success.
+  // the most likely endpoints in order and stop at the first success
+  // *that yields a usable user identifier*. A 200 with an unrecognized
+  // payload should not abort the loop — we keep trying.
   const candidates = [
     `${ssoOpenApiBase()}/customer/info`,
     `${ssoOpenApiBase()}/customer`,
@@ -132,18 +134,34 @@ export async function fetchCustomer(
         cache: "no-store",
       });
       if (!res.ok) {
-        lastError = `${url} → ${res.status}`;
+        const text = await res.text().catch(() => "");
+        lastError = `${url} → ${res.status} ${text.slice(0, 200)}`;
+        console.warn(`[sso] customer probe miss: ${lastError}`);
         continue;
       }
       const json = (await res.json()) as Record<string, unknown>;
+      console.log(
+        `[sso] customer probe hit ${url}, top-level keys=${JSON.stringify(
+          Object.keys(json),
+        )}`,
+      );
       // Agora usually wraps responses in `{ code, message, data }`.
       const data =
         (json.data as Record<string, unknown> | undefined) ??
         (json.customer as Record<string, unknown> | undefined) ??
         json;
-      return normalizeCustomer(data);
+      try {
+        return normalizeCustomer(data);
+      } catch (normErr) {
+        lastError = `${url} → 200 but ${(normErr as Error).message}; keys=${JSON.stringify(
+          Object.keys(data),
+        )}`;
+        console.warn(`[sso] ${lastError}`);
+        continue;
+      }
     } catch (err) {
       lastError = `${url} → ${(err as Error).message}`;
+      console.warn(`[sso] customer probe threw: ${lastError}`);
     }
   }
   throw new Error(
