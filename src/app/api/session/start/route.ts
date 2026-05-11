@@ -380,7 +380,12 @@ export async function POST(request: Request) {
       reservation = await reserve(user, quotaSecondsPerUser());
     } catch (err) {
       console.error("[session/start] quota store unavailable, allowing call:", err);
-      reservation = { id: "quota-unavailable", seconds: 0, startedAt: Date.now() };
+      reservation = {
+        id: "quota-unavailable",
+        seconds: 0,
+        startedAt: Date.now(),
+        bucket: new Date().toISOString().slice(0, 10),
+      };
     }
     if (!reservation) {
       return NextResponse.json(
@@ -459,6 +464,7 @@ export async function POST(request: Request) {
       reservation: {
         id: reservation.id,
         seconds: reservation.seconds,
+        bucket: reservation.bucket,
       },
     });
   } catch (err) {

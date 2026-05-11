@@ -217,7 +217,7 @@ const en: Dictionary = {
     sendFailed: "Could not send the message over RTM.",
     startFailed: "Failed to start session.",
     quotaExhausted:
-      "You've used your 10 free minutes for this demo. Thanks for trying it!",
+      "You've used your 10 free minutes for today. Come back tomorrow!",
     notAuthenticated: "Please sign in with your Agora account to continue.",
     authFailed: (reason: string) =>
       `Sign-in didn't complete (${reason}). Please try again.`,
@@ -225,7 +225,7 @@ const en: Dictionary = {
   auth: {
     signInTitle: "Sign in with your Agora account",
     signInSubtitle:
-      "This live demo is free for Agora users. You get 10 minutes of conversation time per account.",
+      "This live demo is free for Agora users. You get 10 minutes of conversation time per day.",
     signInButton: "Sign in with Agora",
     signInNote:
       "Don't have an Agora account yet? Create one at console.agora.io — it's free.",
@@ -234,9 +234,9 @@ const en: Dictionary = {
     minutesLeftShort: (formatted: string) => formatted,
     unlimited: "Unlimited",
     devMode: "Dev mode",
-    quotaExhaustedTitle: "Your demo time is up",
+    quotaExhaustedTitle: "Your demo time is up for today",
     quotaExhaustedBody:
-      "You've used your 10 free minutes. Thanks for trying the Agora Conversational AI demo!",
+      "You've used your 10 free minutes. Your quota resets at midnight UTC — come back tomorrow!",
   },
   systemPromptDefault: [
     "You are a digital twin of Yan, Agora's developer relations representative in Brazil.",
@@ -351,7 +351,7 @@ const ptBR: Dictionary = {
     sendFailed: "Não foi possível enviar a mensagem pelo RTM.",
     startFailed: "Falha ao iniciar a sessão.",
     quotaExhausted:
-      "Você usou seus 10 minutos gratuitos desta demo. Valeu por testar!",
+      "Você usou seus 10 minutos gratuitos de hoje. Volta amanhã!",
     notAuthenticated:
       "Faça login com sua conta Agora para continuar.",
     authFailed: (reason: string) =>
@@ -360,7 +360,7 @@ const ptBR: Dictionary = {
   auth: {
     signInTitle: "Entre com a sua conta Agora",
     signInSubtitle:
-      "Esta demo ao vivo é gratuita para usuários Agora. Cada conta tem 10 minutos de conversa.",
+      "Esta demo ao vivo é gratuita para usuários Agora. Você tem 10 minutos de conversa por dia.",
     signInButton: "Entrar com a Agora",
     signInNote:
       "Ainda não tem uma conta Agora? Crie uma gratuitamente em console.agora.io.",
@@ -369,9 +369,9 @@ const ptBR: Dictionary = {
     minutesLeftShort: (formatted: string) => formatted,
     unlimited: "Ilimitado",
     devMode: "Modo dev",
-    quotaExhaustedTitle: "Seu tempo na demo acabou",
+    quotaExhaustedTitle: "Seu tempo de hoje acabou",
     quotaExhaustedBody:
-      "Você usou seus 10 minutos gratuitos. Obrigado por experimentar a demo da IA Conversacional da Agora!",
+      "Você usou seus 10 minutos gratuitos. Sua cota é renovada à meia-noite UTC — volta amanhã!",
   },
   systemPromptDefault: [
     "Você é o gêmeo digital do Yan, representante de Developer Relations da Agora no Brasil.",
@@ -487,7 +487,7 @@ const esMX: Dictionary = {
     sendFailed: "No se pudo enviar el mensaje por RTM.",
     startFailed: "No se pudo iniciar la sesión.",
     quotaExhausted:
-      "Ya usaste tus 10 minutos gratis de esta demo. ¡Gracias por probarla!",
+      "Ya usaste tus 10 minutos gratis de hoy. ¡Vuelve mañana!",
     notAuthenticated:
       "Inicia sesión con tu cuenta de Agora para continuar.",
     authFailed: (reason: string) =>
@@ -496,7 +496,7 @@ const esMX: Dictionary = {
   auth: {
     signInTitle: "Inicia sesión con tu cuenta de Agora",
     signInSubtitle:
-      "Esta demo en vivo es gratis para usuarios de Agora. Cada cuenta tiene 10 minutos de conversación.",
+      "Esta demo en vivo es gratis para usuarios de Agora. Tienes 10 minutos de conversación por día.",
     signInButton: "Iniciar sesión con Agora",
     signInNote:
       "¿Aún no tienes cuenta de Agora? Crea una gratis en console.agora.io.",
@@ -505,9 +505,9 @@ const esMX: Dictionary = {
     minutesLeftShort: (formatted: string) => formatted,
     unlimited: "Ilimitado",
     devMode: "Modo dev",
-    quotaExhaustedTitle: "Se acabó tu tiempo en la demo",
+    quotaExhaustedTitle: "Se acabó tu tiempo de hoy",
     quotaExhaustedBody:
-      "Ya usaste tus 10 minutos gratis. ¡Gracias por probar la demo de IA Conversacional de Agora!",
+      "Ya usaste tus 10 minutos gratis. Tu cuota se renueva a medianoche UTC — ¡vuelve mañana!",
   },
   systemPromptDefault: [
     "Eres el gemelo digital de Yan, representante de Developer Relations de Agora en Brasil.",

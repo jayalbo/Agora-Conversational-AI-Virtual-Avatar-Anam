@@ -11,6 +11,7 @@ type StopSessionPayload = {
   appId?: string;
   appCertificate?: string;
   reservationId?: string;
+  reservationBucket?: string;
   elapsedSeconds?: number;
 };
 
@@ -31,14 +32,15 @@ export async function POST(request: Request) {
     // We do this regardless of whether /leave succeeds below — the
     // user's time was spent either way.
     const reservationId = payload.reservationId?.trim();
-    if (reservationId) {
+    const reservationBucket = payload.reservationBucket?.trim();
+    if (reservationId && reservationBucket) {
       const user = await getSessionUser();
       if (user) {
         const elapsed = Number.isFinite(payload.elapsedSeconds)
           ? Math.max(0, Math.floor(payload.elapsedSeconds as number))
           : 0;
         try {
-          await commit(user, reservationId, elapsed);
+          await commit(user, reservationId, reservationBucket, elapsed);
         } catch (err) {
           // Non-fatal: we still want to kill the agent even if Redis
           // is momentarily unreachable.

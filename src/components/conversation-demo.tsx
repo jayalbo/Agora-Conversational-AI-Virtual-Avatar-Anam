@@ -95,6 +95,7 @@ type SessionResponse = {
   reservation?: {
     id: string;
     seconds: number;
+    bucket: string;
   };
 };
 
@@ -243,7 +244,11 @@ export function ConversationDemo() {
   // tick `liveRemainingSeconds` locally every second for a smooth UI.
   const [me, setMe] = useState<Me | null>(null);
   const [liveRemainingSeconds, setLiveRemainingSeconds] = useState<number | null>(null);
-  const reservationRef = useRef<{ id: string; startedAt: number } | null>(null);
+  const reservationRef = useRef<{
+    id: string;
+    bucket: string;
+    startedAt: number;
+  } | null>(null);
 
   // Hydrate overrides from localStorage once on mount. If a stored value
   // exists, treat the field as "touched" so locale changes don't clobber it.
@@ -670,6 +675,7 @@ export function ConversationDemo() {
       const stopBody = {
         ...(agentSession ?? {}),
         reservationId: reservation?.id,
+        reservationBucket: reservation?.bucket,
         elapsedSeconds: reservation
           ? Math.max(
               0,
@@ -785,10 +791,13 @@ export function ConversationDemo() {
       const session = (await startRes.json()) as SessionResponse;
 
       // Record the reservation so heartbeats and /stop can report the
-      // elapsed time against the right bucket.
-      if (session.reservation?.id) {
+      // elapsed time against the right bucket. The bucket is captured
+      // server-side at reserve() time so a call that crosses midnight
+      // UTC still bills against the day it started.
+      if (session.reservation?.id && session.reservation.bucket) {
         reservationRef.current = {
           id: session.reservation.id,
+          bucket: session.reservation.bucket,
           startedAt: Date.now(),
         };
       }
@@ -1056,6 +1065,7 @@ export function ConversationDemo() {
         const body = {
           ...(session ?? {}),
           reservationId: reservation?.id,
+          reservationBucket: reservation?.bucket,
           elapsedSeconds: reservation
             ? Math.max(
                 0,
@@ -1116,7 +1126,10 @@ export function ConversationDemo() {
       void fetch("/api/session/heartbeat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reservationId: reservation.id }),
+        body: JSON.stringify({
+          reservationId: reservation.id,
+          reservationBucket: reservation.bucket,
+        }),
       }).catch(() => {
         // Best-effort; the reservation TTL is long enough that a
         // temporary network glitch won't kill the session.

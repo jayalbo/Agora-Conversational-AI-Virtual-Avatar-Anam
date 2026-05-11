@@ -2,19 +2,21 @@ import { Redis } from "@upstash/redis";
 import { authMode } from "./auth";
 
 /**
- * Per-user time-budget tracking for the public demo.
+ * Per-user DAILY time-budget tracking for the public demo.
  *
  * Each visitor gets DEMO_QUOTA_SECONDS (default 600 = 10 min) of
- * ConvAI agent time, counted across sessions. Budget is tracked in
- * Upstash Redis keyed by the Agora user id returned from SSO.
+ * ConvAI agent time per UTC calendar day. The Redis key includes the
+ * day bucket, so a fresh quota appears automatically at 00:00 UTC
+ * with no cron — yesterday's key just stops being touched and
+ * evicts itself via TTL.
  *
  * The accounting is "reserve on start, commit on stop":
- *  - `reserve(userId, seconds)` optimistically deducts a chunk of budget
- *    with an expiry — if the client crashes and never calls `commit`,
- *    the reservation falls off on its own so we don't permanently
- *    pin the user's quota.
- *  - `commit(userId, actualSeconds, reservationId)` replaces the reservation
- *    with the real elapsed time.
+ *  - `reserve(user, seconds)` optimistically deducts a chunk of budget
+ *    with an expiry. Returns a `Reservation` that locks in the day
+ *    bucket at start time, so a call that crosses midnight still
+ *    counts against the day it began.
+ *  - `commit(user, reservation, actualSeconds)` replaces the
+ *    reservation with the real elapsed time.
  *
  * Bypass paths (short-circuit to "unlimited" with no Redis writes):
  *  - AUTH_MODE=bypass (local dev)
@@ -23,7 +25,10 @@ import { authMode } from "./auth";
 
 export const DEFAULT_QUOTA_SECONDS = 600;
 const RESERVATION_TTL_SECONDS = 60 * 60 * 2; // 2h safety net for abandoned sessions.
-const HASH_TTL_SECONDS = 60 * 60 * 24 * 90; // Keep usage hashes ~90d so we can see returning users.
+// Each bucket only needs to live long enough to cover any in-flight
+// call that started before midnight plus a wraparound buffer. 36h is
+// plenty and keeps Redis tidy.
+const HASH_TTL_SECONDS = 60 * 60 * 36;
 
 export type Usage = {
   unlimited: boolean;
@@ -37,7 +42,23 @@ export type Reservation = {
   id: string;
   seconds: number;
   startedAt: number;
+  /**
+   * UTC day bucket ("YYYY-MM-DD") captured at reserve() time. Carried
+   * through heartbeat()/commit() so a call billed at 00:03 still
+   * counts against the day it actually ran.
+   */
+  bucket: string;
 };
+
+/** UTC day key in "YYYY-MM-DD" form. */
+function dayBucket(date: Date = new Date()): string {
+  return date.toISOString().slice(0, 10);
+}
+
+/** True if `bucket` looks like a valid "YYYY-MM-DD" string. */
+export function isValidBucket(bucket: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(bucket);
+}
 
 let _redis: Redis | null = null;
 function redis(): Redis {
@@ -93,8 +114,8 @@ export function isBypassed(user: {
   return list.includes(idKey) || (!!emailKey && list.includes(emailKey));
 }
 
-function usageKey(userId: string): string {
-  return `usage:${userId}`;
+function usageKey(userId: string, bucket: string = dayBucket()): string {
+  return `usage:${userId}:${bucket}`;
 }
 
 export async function getUsage(user: {
@@ -151,11 +172,13 @@ export async function reserve(
   user: { id: string; email?: string | null },
   seconds: number,
 ): Promise<Reservation | null> {
+  const bucket = dayBucket();
   if (isBypassed(user)) {
     return {
       id: "bypass",
       seconds: 0,
       startedAt: Date.now(),
+      bucket,
     };
   }
   const usage = await getUsage(user);
@@ -163,7 +186,7 @@ export async function reserve(
 
   const reservedSeconds = Math.min(seconds, usage.remainingSeconds);
   const id = crypto.randomUUID();
-  const key = usageKey(user.id);
+  const key = usageKey(user.id, bucket);
 
   // Clear any stale reservation (its expiry has already excluded it
   // from `remainingSeconds`, so we're safe to overwrite), then set the
@@ -176,22 +199,28 @@ export async function reserve(
   });
   await redis().expire(key, HASH_TTL_SECONDS);
 
-  return { id, seconds: reservedSeconds, startedAt: Date.now() };
+  return { id, seconds: reservedSeconds, startedAt: Date.now(), bucket };
 }
 
 /**
  * Finalize a session: add the actual elapsed seconds to `used` and
  * clear the reservation. Idempotent on reservationId mismatch (we
  * don't double-count if /stop fires twice).
+ *
+ * The bucket is read off the reservation, not from "today" — so a
+ * call that began before midnight UTC and ended after still counts
+ * against the day it started, not the new day.
  */
 export async function commit(
   user: { id: string; email?: string | null },
   reservationId: string,
+  reservationBucket: string,
   actualElapsedSeconds: number,
 ): Promise<void> {
   if (isBypassed(user)) return;
+  if (!isValidBucket(reservationBucket)) return;
 
-  const key = usageKey(user.id);
+  const key = usageKey(user.id, reservationBucket);
   const currentResId = await redis().hget<string>(key, "resId");
   if (currentResId !== reservationId) {
     // Already committed (or replaced by a newer reservation). No-op.
@@ -211,16 +240,18 @@ export async function commit(
 export async function heartbeat(
   user: { id: string; email?: string | null },
   reservationId: string,
+  reservationBucket: string,
 ): Promise<void> {
   if (isBypassed(user)) return;
-  const key = usageKey(user.id);
+  if (!isValidBucket(reservationBucket)) return;
+  const key = usageKey(user.id, reservationBucket);
   const currentResId = await redis().hget<string>(key, "resId");
   if (currentResId !== reservationId) return;
   const expMs = Date.now() + RESERVATION_TTL_SECONDS * 1000;
   await redis().hset(key, { resExp: expMs });
 }
 
-/** Admin helper: wipe a user's usage entirely. Used by the reset-quota route. */
+/** Admin helper: wipe a user's current-day usage. */
 export async function resetUsage(userId: string): Promise<void> {
   await redis().del(usageKey(userId));
 }

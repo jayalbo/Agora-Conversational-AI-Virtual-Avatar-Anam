@@ -3,7 +3,10 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { heartbeat } from "@/lib/quota";
 
-type HeartbeatPayload = { reservationId?: string };
+type HeartbeatPayload = {
+  reservationId?: string;
+  reservationBucket?: string;
+};
 
 /**
  * POST /api/session/heartbeat  { reservationId }
@@ -22,13 +25,14 @@ export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as HeartbeatPayload;
     const reservationId = payload.reservationId?.trim();
-    if (!reservationId) {
+    const reservationBucket = payload.reservationBucket?.trim();
+    if (!reservationId || !reservationBucket) {
       return NextResponse.json(
-        { error: "Missing reservationId." },
+        { error: "Missing reservationId or reservationBucket." },
         { status: 400 },
       );
     }
-    await heartbeat(user, reservationId);
+    await heartbeat(user, reservationId, reservationBucket);
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[quota] /heartbeat failed:", err);
