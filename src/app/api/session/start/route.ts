@@ -372,8 +372,16 @@ export async function POST(request: Request) {
     // Reserve the user's remaining quota (or the per-session maximum,
     // whichever is lower). Bypassed / unlimited users get a no-op
     // reservation. If the user is out of time, bail before we spin up
-    // the agent.
-    const reservation = await reserve(user, quotaSecondsPerUser());
+    // the agent. If the quota store is unconfigured (e.g. Upstash not
+    // linked yet), let the call proceed with a no-op reservation
+    // instead of blocking the user.
+    let reservation: Awaited<ReturnType<typeof reserve>>;
+    try {
+      reservation = await reserve(user, quotaSecondsPerUser());
+    } catch (err) {
+      console.error("[session/start] quota store unavailable, allowing call:", err);
+      reservation = { id: "quota-unavailable", seconds: 0, startedAt: Date.now() };
+    }
     if (!reservation) {
       return NextResponse.json(
         { error: "quota_exhausted" },
