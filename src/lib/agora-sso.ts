@@ -112,15 +112,25 @@ export type AgoraCustomer = {
 export async function fetchCustomer(
   accessToken: string,
 ): Promise<AgoraCustomer> {
-  // The OpenAPI path under sso-open.agora.io is /customer but different
-  // Agora deployments have exposed it under different sub-paths. We try
-  // the most likely endpoints in order and stop at the first success
-  // *that yields a usable user identifier*. A 200 with an unrecognized
-  // payload should not abort the loop — we keep trying.
+  // Agora hasn't published a single canonical "userinfo" endpoint for
+  // SSO. The token endpoint that works is
+  // `${ssoBaseUrl}/api/v0/oauth/token`, so the profile endpoint is
+  // almost certainly on the same host under /api/v0/... We probe the
+  // standard OAuth 2.0 names plus a few Agora-specific patterns and
+  // stop at the first one that returns a usable payload. Each miss is
+  // logged so we can converge on the right URL from Vercel logs.
+  const base = ssoBaseUrl();
+  const openBase = ssoOpenApiBase();
   const candidates = [
-    `${ssoOpenApiBase()}/customer/info`,
-    `${ssoOpenApiBase()}/customer`,
-    `${ssoOpenApiBase()}/customer/me`,
+    `${base}/api/v0/oauth/userinfo`,
+    `${base}/api/v0/userinfo`,
+    `${base}/api/v0/user/info`,
+    `${base}/api/v0/user/me`,
+    `${base}/api/v0/customer/info`,
+    `${base}/api/v0/customer`,
+    `${openBase}/customer/info`,
+    `${openBase}/customer`,
+    `${openBase}/customer/me`,
   ];
   let lastError: string | null = null;
   for (const url of candidates) {
