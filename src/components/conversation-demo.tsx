@@ -226,8 +226,6 @@ export function ConversationDemo() {
   const [mcpEnabled, setMcpEnabled] = useState<boolean>(true);
   const [mcpServerUrl, setMcpServerUrl] = useState<string>(DEFAULT_MCP_SERVER_URL);
   const [visionEnabled, setVisionEnabled] = useState<boolean>(false);
-  const [appId, setAppId] = useState<string>("");
-  const [appCertificate, setAppCertificate] = useState<string>("");
   const [micDevices, setMicDevices] = useState<MicDevice[]>([]);
   const [selectedMicDeviceId, setSelectedMicDeviceId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
@@ -284,14 +282,12 @@ export function ConversationDemo() {
       if (storedMic !== null && storedMic !== "") {
         setSelectedMicDeviceId(storedMic);
       }
-      const storedAppId = window.localStorage.getItem("yan.appId");
-      if (storedAppId !== null && storedAppId !== "") {
-        setAppId(storedAppId);
-      }
-      const storedAppCert = window.localStorage.getItem("yan.appCertificate");
-      if (storedAppCert !== null && storedAppCert !== "") {
-        setAppCertificate(storedAppCert);
-      }
+      // Legacy: older builds let the user paste appId/appCertificate
+      // into Settings and persisted them in localStorage. With SSO we
+      // own those creds on the server, so scrub any stale values to
+      // avoid leaking sensitive data in browsers that visited before.
+      window.localStorage.removeItem("yan.appId");
+      window.localStorage.removeItem("yan.appCertificate");
     } catch {
       // storage unavailable — ignore
     }
@@ -400,8 +396,6 @@ export function ConversationDemo() {
     agentId: string;
     channelName: string;
     userUid: number;
-    appId?: string;
-    appCertificate?: string;
   } | null>(null);
   const localAudioTrackRef = useRef<any>(null);
   const localCameraTrackRef = useRef<any>(null);
@@ -764,8 +758,6 @@ export function ConversationDemo() {
           voiceSpeed,
           fillerPhrases: t.fillerPhrases,
           asrLanguage: localeMeta.speechLang,
-          appId: appId.trim() || undefined,
-          appCertificate: appCertificate.trim() || undefined,
           mcp: mcpEnabled && mcpServerUrl.trim()
             ? { enabled: true, serverUrl: mcpServerUrl.trim() }
             : { enabled: false },
@@ -808,8 +800,6 @@ export function ConversationDemo() {
           agentId: session.agent.agentId,
           channelName: session.channelName,
           userUid: session.uid,
-          appId: appId.trim() || undefined,
-          appCertificate: appCertificate.trim() || undefined
         };
       }
 
@@ -944,8 +934,6 @@ export function ConversationDemo() {
       setError(err instanceof Error ? err.message : "Unknown error while starting call.");
     }
   }, [
-    appCertificate,
-    appId,
     applyTranscriptUpdate,
     cleanupSession,
     greeting,
@@ -1039,8 +1027,6 @@ export function ConversationDemo() {
     if (status === "connecting") return <Badge variant="warn">{t.status.connecting}</Badge>;
     return <Badge>{t.status.idle}</Badge>;
   }, [status, t.status.idle, t.status.connecting, t.status.live]);
-
-  const hasCredentials = Boolean(appId.trim() && appCertificate.trim());
 
   // Latest assistant line for the caption overlay.
   const latestAssistantLine = useMemo(() => {
@@ -1179,7 +1165,6 @@ export function ConversationDemo() {
   const canStart =
     !!me &&
     me.authenticated &&
-    hasCredentials &&
     (me.unlimited ||
       (effectiveRemainingSeconds ?? 0) > 0);
 
@@ -1494,86 +1479,6 @@ export function ConversationDemo() {
                 </Button>
               </CardHeader>
               <CardContent className="scrollbar-thin flex-1 space-y-4 overflow-y-auto">
-                <div className="space-y-2 rounded-lg border border-[color:var(--agora-primary)]/20 bg-[color:var(--agora-primary)]/5 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--agora-blue)]">
-                      {t.settings.credentials}
-                    </p>
-                    {hasCredentials ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setAppId("");
-                          setAppCertificate("");
-                          try {
-                            window.localStorage.removeItem("yan.appId");
-                            window.localStorage.removeItem("yan.appCertificate");
-                          } catch {
-                            // ignore storage errors
-                          }
-                        }}
-                      >
-                        {t.settings.clearCredentials}
-                      </Button>
-                    ) : null}
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-slate-400" htmlFor="yan-app-id">
-                      {t.settings.appId}
-                    </label>
-                    <Input
-                      id="yan-app-id"
-                      value={appId}
-                      autoComplete="off"
-                      spellCheck={false}
-                      onChange={(event) => {
-                        const next = event.target.value.trim();
-                        setAppId(next);
-                        try {
-                          if (next) {
-                            window.localStorage.setItem("yan.appId", next);
-                          } else {
-                            window.localStorage.removeItem("yan.appId");
-                          }
-                        } catch {
-                          // ignore storage errors
-                        }
-                      }}
-                      placeholder={t.settings.appIdPlaceholder}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label
-                      className="text-xs text-slate-400"
-                      htmlFor="yan-app-certificate"
-                    >
-                      {t.settings.appCertificate}
-                    </label>
-                    <Input
-                      id="yan-app-certificate"
-                      type="password"
-                      value={appCertificate}
-                      autoComplete="off"
-                      spellCheck={false}
-                      onChange={(event) => {
-                        const next = event.target.value.trim();
-                        setAppCertificate(next);
-                        try {
-                          if (next) {
-                            window.localStorage.setItem("yan.appCertificate", next);
-                          } else {
-                            window.localStorage.removeItem("yan.appCertificate");
-                          }
-                        } catch {
-                          // ignore storage errors
-                        }
-                      }}
-                      placeholder={t.settings.appCertificatePlaceholder}
-                    />
-                  </div>
-                  <p className="text-xs text-slate-500">{t.settings.credentialsHint}</p>
-                </div>
                 <div className="space-y-2">
                   <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                     {t.settings.language}
@@ -1777,11 +1682,6 @@ export function ConversationDemo() {
               size="lg"
               className="min-w-40"
               onClick={() => {
-                if (!hasCredentials) {
-                  setError(t.settings.credentialsRequired);
-                  setShowSettings(true);
-                  return;
-                }
                 if (quotaExhausted) {
                   setError(t.errors.quotaExhausted);
                   return;
@@ -1789,13 +1689,7 @@ export function ConversationDemo() {
                 void startCall();
               }}
               disabled={isConnecting || !canStart}
-              title={
-                !hasCredentials
-                  ? t.settings.credentialsRequired
-                  : quotaExhausted
-                    ? t.errors.quotaExhausted
-                    : undefined
-              }
+              title={quotaExhausted ? t.errors.quotaExhausted : undefined}
             >
               {isConnecting ? (
                 <>

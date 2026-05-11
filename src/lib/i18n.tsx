@@ -86,14 +86,6 @@ type Dictionary = {
   settings: {
     title: string;
     description: string;
-    credentials: string;
-    credentialsHint: string;
-    appId: string;
-    appIdPlaceholder: string;
-    appCertificate: string;
-    appCertificatePlaceholder: string;
-    clearCredentials: string;
-    credentialsRequired: string;
     systemPrompt: string;
     systemPromptHint: string;
     systemPromptPlaceholder: string;
@@ -188,16 +180,6 @@ const en: Dictionary = {
   settings: {
     title: "Session settings",
     description: "Tune the assistant for the next call.",
-    credentials: "Agora credentials",
-    credentialsHint:
-      "Bring your own Agora account. Values are stored only in this browser and sent per call to start the session. Get them at console.agora.io.",
-    appId: "App ID",
-    appIdPlaceholder: "Your Agora App ID",
-    appCertificate: "App Certificate",
-    appCertificatePlaceholder: "Your Agora App Certificate",
-    clearCredentials: "Clear credentials",
-    credentialsRequired:
-      "Add your Agora App ID and Certificate in settings to start a call.",
     systemPrompt: "System prompt",
     systemPromptHint:
       "Applied on the next call. Restart the session to pick up changes.",
@@ -331,16 +313,6 @@ const ptBR: Dictionary = {
   settings: {
     title: "Configurações da sessão",
     description: "Ajuste o assistente para a próxima chamada.",
-    credentials: "Credenciais da Agora",
-    credentialsHint:
-      "Use sua própria conta Agora. Os valores ficam salvos apenas neste navegador e são enviados a cada chamada para iniciar a sessão. Pegue os seus em console.agora.io.",
-    appId: "App ID",
-    appIdPlaceholder: "Seu App ID da Agora",
-    appCertificate: "App Certificate",
-    appCertificatePlaceholder: "Seu App Certificate da Agora",
-    clearCredentials: "Limpar credenciais",
-    credentialsRequired:
-      "Adicione o seu App ID e App Certificate da Agora nas configurações para iniciar uma chamada.",
     systemPrompt: "Prompt do sistema",
     systemPromptHint:
       "Aplicado na próxima chamada. Reinicie a sessão para aplicar as mudanças.",
@@ -476,16 +448,6 @@ const esMX: Dictionary = {
   settings: {
     title: "Ajustes de la sesión",
     description: "Ajusta el asistente para la próxima llamada.",
-    credentials: "Credenciales de Agora",
-    credentialsHint:
-      "Usa tu propia cuenta de Agora. Los valores se guardan solo en este navegador y se envían en cada llamada para iniciar la sesión. Obtén los tuyos en console.agora.io.",
-    appId: "App ID",
-    appIdPlaceholder: "Tu App ID de Agora",
-    appCertificate: "App Certificate",
-    appCertificatePlaceholder: "Tu App Certificate de Agora",
-    clearCredentials: "Borrar credenciales",
-    credentialsRequired:
-      "Agrega tu App ID y App Certificate de Agora en los ajustes para iniciar una llamada.",
     systemPrompt: "Prompt del sistema",
     systemPromptHint:
       "Se aplica en la próxima llamada. Reinicia la sesión para tomar los cambios.",

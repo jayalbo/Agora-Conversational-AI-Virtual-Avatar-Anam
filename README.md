@@ -1,9 +1,9 @@
 # Agora Conversational AI — Live Demo
 
 A public-facing demo of [Agora's Conversational AI Agent](https://www.agora.io/en/products/conversational-ai-agent/)
-running with real-time voice, live transcriptions, and a lifelike avatar. Visitors
-bring their own Agora account (App ID + Certificate) and talk to a digital twin
-of Yan, Agora's developer relations rep in Brazil.
+running with real-time voice, live transcriptions, and a lifelike avatar.
+Visitors sign in with their Agora account via SSO and talk to a digital
+twin of Yan, Agora's developer relations rep in Brazil.
 
 ![Tech stack: Next.js · TypeScript · Tailwind · Agora Conversational AI · ElevenLabs · OpenAI · Anam avatar](https://img.shields.io/badge/stack-Next.js%20·%20Agora%20ConvAI%20·%20ElevenLabs%20·%20OpenAI%20·%20Anam-00C2FF)
 
@@ -20,8 +20,6 @@ of Yan, Agora's developer relations rep in Brazil.
 - **Microphone device picker** with hot-swap during a call
 - **Internationalization** — English, Português (Brasil), and Español (México),
   user-switchable
-- **Bring-your-own Agora account** — App ID + Certificate stored locally in
-  the browser, never persisted on the server
 - **Agora SSO** — visitors sign in with their Agora account; no account, no demo
 - **Per-user time budget** — 10 minutes per Agora account, tracked in Upstash
   Redis (configurable; allowlist supported for live demos)
@@ -60,16 +58,15 @@ Optional (defaults shown):
 
 #### Agora credentials (App ID + Certificate)
 
-Two modes are supported:
+Required server-side. Every authenticated visitor's RTC token is signed
+with these values and every Conversational AI agent runs under this
+project. Set both:
 
-1. **BYO (public demo)** — leave `NEXT_PUBLIC_AGORA_APP_ID` and
-   `AGORA_APP_CERTIFICATE` empty in the server env. Users are required to
-   enter their own credentials in the Settings panel. This is the recommended
-   mode for anything public.
-2. **Local dev** — set them in `.env.local` to skip the settings prompt on
-   your own machine.
+- `NEXT_PUBLIC_AGORA_APP_ID`
+- `AGORA_APP_CERTIFICATE` (sensitive)
 
 Get them at [console.agora.io](https://console.agora.io) → Project Management.
+On Vercel, mark `AGORA_APP_CERTIFICATE` as **Sensitive** when adding it.
 
 #### Agora SSO (required for production)
 
@@ -162,14 +159,14 @@ Open [http://localhost:4000](http://localhost:4000).
 All tunables live in the Settings drawer (gear icon top-right) and persist in
 `localStorage`:
 
-- **Agora credentials** — App ID + Certificate (required for public demos)
-- **Language** — English / Português (Brasil), drives UI + ASR + prompt
+- **Language** — English / Português (Brasil) / Español (México); drives UI + ASR + prompt
 - **Greeting** — the agent's opening line
 - **Voice speed** — ElevenLabs TTS speed, clamped to `[0.7, 1.2]`
 - **MCP tools** — enable/disable and set a server URL (SSE)
+- **Vision (camera)** — let the agent see what your camera sees
 - **System prompt** — full override of the agent persona
 
-A **Restore defaults** button resets everything except the Agora credentials.
+A **Restore defaults** button resets everything in this list.
 
 ## Deployment
 
@@ -178,8 +175,8 @@ a plain VM, etc.).
 
 For a public deployment:
 
-- Leave `NEXT_PUBLIC_AGORA_APP_ID` and `AGORA_APP_CERTIFICATE` unset so visitors
-  are forced to bring their own Agora account.
+- Set `NEXT_PUBLIC_AGORA_APP_ID` and `AGORA_APP_CERTIFICATE` server-side; every
+  signed-in visitor calls under this Agora project.
 - Keep the other keys (`OPENAI_API_KEY`, `ELEVENLABS_*`, `ANAM_*`) server-side
   so they are not exposed.
 - The server never logs Agora credentials or API keys.
