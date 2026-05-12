@@ -41,7 +41,12 @@ import { cn } from "@/lib/utils";
 const DEFAULT_VOICE_SPEED = 0.9;
 const MIN_VOICE_SPEED = 0.7;
 const MAX_VOICE_SPEED = 1.2;
-const DEFAULT_MCP_SERVER_URL = "https://agorawebhooks.duckdns.org/mcp/sse";
+// Default MCP server URL. Configurable per-deploy via
+// NEXT_PUBLIC_DEFAULT_MCP_SERVER_URL; falls back to the original
+// hardcoded value so existing deployments keep working.
+const DEFAULT_MCP_SERVER_URL =
+  process.env.NEXT_PUBLIC_DEFAULT_MCP_SERVER_URL ||
+  "https://agorawebhooks.duckdns.org/mcp/sse";
 
 // How often to push a camera frame to the agent as `sendImage`.
 // Every few seconds keeps the visual context fresh without flooding
