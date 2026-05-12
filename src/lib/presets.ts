@@ -23,6 +23,8 @@ import { redis } from "./redis";
 export type PresetLanguage = "en" | "pt-BR" | "es-MX";
 
 export type PresetInput = {
+  /** Human-readable name so admins can tell their presets apart. */
+  label: string;
   systemPrompt: string;
   greeting: string;
   language: PresetLanguage;
@@ -74,6 +76,8 @@ export function isValidPresetId(id: string): boolean {
 export function normalizePresetInput(raw: unknown): PresetInput | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
+  const label =
+    typeof obj.label === "string" ? obj.label.trim() : "";
   const systemPrompt =
     typeof obj.systemPrompt === "string" ? obj.systemPrompt.trim() : "";
   const greeting =
@@ -90,10 +94,11 @@ export function normalizePresetInput(raw: unknown): PresetInput | null {
     ? Math.min(1.2, Math.max(0.7, voiceSpeedRaw))
     : 1.0;
 
+  if (!label || label.length > 60) return null;
   if (!systemPrompt || systemPrompt.length > 4000) return null;
   if (!greeting || greeting.length > 1000) return null;
   if (!language) return null;
-  return { systemPrompt, greeting, language, voiceSpeed };
+  return { label, systemPrompt, greeting, language, voiceSpeed };
 }
 
 export async function createPreset(
@@ -126,6 +131,7 @@ export async function createPreset(
   };
 
   await redis().hset(presetKey(id), {
+    label: record.label,
     systemPrompt: record.systemPrompt,
     greeting: record.greeting,
     language: record.language,
@@ -157,6 +163,9 @@ export async function getPreset(id: string): Promise<Preset | null> {
       : Number.parseFloat(String(raw.voiceSpeed));
   return {
     id,
+    // Older presets created before the label field existed fall back
+    // to their slug — keeps the admin list usable without a backfill.
+    label: String(raw.label ?? id),
     systemPrompt: String(raw.systemPrompt ?? ""),
     greeting: String(raw.greeting ?? ""),
     language,

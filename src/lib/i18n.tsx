@@ -115,6 +115,8 @@ type Dictionary = {
   admin: {
     sectionTitle: string;
     sectionHint: string;
+    labelField: string;
+    labelPlaceholder: string;
     save: string;
     saving: string;
     saveFailed: string;
@@ -235,11 +237,13 @@ const en: Dictionary = {
     sectionTitle: "Shareable demo (Agora team only)",
     sectionHint:
       "Save the current prompt, greeting, language, and voice speed as a shareable URL. Anyone signed into SSO who opens the link gets this configuration before their call starts.",
+    labelField: "Preset name",
+    labelPlaceholder: "e.g. Acme Q2 pitch",
     save: "Save & copy link",
     saving: "Saving…",
     saveFailed: "Couldn't save the preset. Try again.",
     invalidPayload:
-      "Need a non-empty system prompt and greeting before saving.",
+      "Fill in a preset name, system prompt, and greeting before saving.",
     limitReached:
       "You've hit the 50-preset limit. Delete one before saving a new one.",
     created: "Preset created:",
@@ -392,11 +396,13 @@ const ptBR: Dictionary = {
     sectionTitle: "Demo compartilhável (somente time Agora)",
     sectionHint:
       "Salve o prompt, a saudação, o idioma e a velocidade de voz atuais como uma URL compartilhável. Qualquer pessoa logada via SSO que abrir o link vai cair direto nessa configuração.",
+    labelField: "Nome do preset",
+    labelPlaceholder: "ex: Pitch Acme Q2",
     save: "Salvar e copiar link",
     saving: "Salvando…",
     saveFailed: "Não foi possível salvar o preset. Tente de novo.",
     invalidPayload:
-      "É preciso ter prompt do sistema e saudação preenchidos antes de salvar.",
+      "Preencha o nome do preset, o prompt do sistema e a saudação antes de salvar.",
     limitReached:
       "Você atingiu o limite de 50 presets. Apague um antes de salvar outro.",
     created: "Preset criado:",
@@ -551,11 +557,13 @@ const esMX: Dictionary = {
     sectionTitle: "Demo compartible (solo equipo Agora)",
     sectionHint:
       "Guarda el prompt, el saludo, el idioma y la velocidad de voz actuales como una URL compartible. Cualquiera que abra el link tras iniciar sesión con SSO entra con esta configuración.",
+    labelField: "Nombre del preset",
+    labelPlaceholder: "ej. Pitch Acme Q2",
     save: "Guardar y copiar link",
     saving: "Guardando…",
     saveFailed: "No se pudo guardar el preset. Inténtalo otra vez.",
     invalidPayload:
-      "Necesitas un prompt del sistema y un saludo antes de guardar.",
+      "Llena el nombre del preset, el prompt del sistema y el saludo antes de guardar.",
     limitReached:
       "Llegaste al límite de 50 presets. Borra uno antes de guardar otro.",
     created: "Preset creado:",

@@ -243,6 +243,7 @@ export function ConversationDemo() {
   // when the admin opens the Settings drawer.
   type AdminPresetRow = {
     id: string;
+    label: string;
     language: "en" | "pt-BR" | "es-MX";
     createdAt: number;
   };
@@ -252,6 +253,7 @@ export function ConversationDemo() {
   const [adminLastCreatedId, setAdminLastCreatedId] = useState<string | null>(null);
   const [adminCopiedId, setAdminCopiedId] = useState<string | null>(null);
   const [adminSaving, setAdminSaving] = useState(false);
+  const [adminLabel, setAdminLabel] = useState("");
 
   // Auth + quota state. `me` is the server's view of who we are and
   // how much time we have left; it's refetched after login and after
@@ -352,13 +354,41 @@ export function ConversationDemo() {
   // authenticated. We never strip the param — refreshing should
   // re-apply the same preset, and the customer doesn't see it in the
   // UI anyway.
+  //
+  // The OAuth callback redirects to `/` and strips the query string,
+  // so on first mount we also stash `?p=` in sessionStorage. After
+  // SSO completes we read it back, apply it, then clear the stash.
   const presetAppliedRef = useRef(false);
+  const PRESET_STASH_KEY = "yan.pendingPresetId";
+
+  // First-paint: capture `?p=` BEFORE we know auth state, so we don't
+  // lose it across the SSO round-trip.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const presetId = new URL(window.location.href).searchParams.get("p");
+      if (presetId) {
+        window.sessionStorage.setItem(PRESET_STASH_KEY, presetId);
+      }
+    } catch {
+      // sessionStorage unavailable (private mode in some browsers); the
+      // URL-only path still works for users who never log out.
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (presetAppliedRef.current) return;
     if (!me || !me.authenticated) return;
     const url = new URL(window.location.href);
-    const presetId = url.searchParams.get("p");
+    let presetId = url.searchParams.get("p");
+    if (!presetId) {
+      try {
+        presetId = window.sessionStorage.getItem(PRESET_STASH_KEY);
+      } catch {
+        presetId = null;
+      }
+    }
     if (!presetId) return;
 
     presetAppliedRef.current = true;
@@ -395,6 +425,14 @@ export function ConversationDemo() {
         greetingTouchedRef.current = true;
       } catch (err) {
         console.warn("[preset] load failed", err);
+      } finally {
+        // Clear the stash whether or not the apply succeeded — we
+        // tried, so don't keep re-trying on every page reload.
+        try {
+          window.sessionStorage.removeItem(PRESET_STASH_KEY);
+        } catch {
+          // ignore
+        }
       }
     })();
   }, [me, setLocale]);
@@ -1130,6 +1168,7 @@ export function ConversationDemo() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          label: adminLabel.trim(),
           systemPrompt: systemPrompt.trim(),
           greeting: greeting.trim(),
           language: localeMeta.code,
@@ -1149,6 +1188,7 @@ export function ConversationDemo() {
       }
       const json = (await res.json()) as { id: string };
       setAdminLastCreatedId(json.id);
+      setAdminLabel("");
       await refreshAdminPresets();
       // Auto-copy the freshly minted URL so Yan can paste straight
       // into Slack/email.
@@ -1167,6 +1207,7 @@ export function ConversationDemo() {
       setAdminSaving(false);
     }
   }, [
+    adminLabel,
     buildShareUrl,
     greeting,
     localeMeta.code,
@@ -1836,19 +1877,35 @@ export function ConversationDemo() {
                 </div>
 
                 {isAdminUser ? (
-                  <div className="space-y-3 rounded-lg border border-[color:var(--agora-primary)]/30 bg-[color:var(--agora-primary)]/5 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--agora-blue)]">
-                          {t.admin.sectionTitle}
-                        </p>
-                        <p className="text-xs text-slate-400">{t.admin.sectionHint}</p>
-                      </div>
+                  <div className="space-y-4 rounded-lg border border-[color:var(--agora-primary)]/30 bg-[color:var(--agora-primary)]/5 p-4">
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--agora-blue)]">
+                        {t.admin.sectionTitle}
+                      </p>
+                      <p className="text-xs text-slate-400">{t.admin.sectionHint}</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="admin-preset-label"
+                        className="block text-xs font-medium text-slate-300"
+                      >
+                        {t.admin.labelField}
+                      </label>
+                      <Input
+                        id="admin-preset-label"
+                        value={adminLabel}
+                        onChange={(event) => setAdminLabel(event.target.value)}
+                        placeholder={t.admin.labelPlaceholder}
+                        maxLength={60}
+                      />
                       <Button
                         size="sm"
+                        className="w-full"
                         onClick={() => void handleCreatePreset()}
                         disabled={
                           adminSaving ||
+                          !adminLabel.trim() ||
                           !systemPrompt.trim() ||
                           !greeting.trim()
                         }
@@ -1856,49 +1913,52 @@ export function ConversationDemo() {
                         {adminSaving ? t.admin.saving : t.admin.save}
                       </Button>
                     </div>
+
                     {adminPresetError ? (
                       <p className="text-xs text-rose-300">{adminPresetError}</p>
                     ) : null}
+
                     {adminLastCreatedId ? (
-                      <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5 text-xs">
-                        <div className="text-emerald-200">
-                          {t.admin.created}{" "}
-                          <code className="text-emerald-100">{adminLastCreatedId}</code>
-                        </div>
-                        <div className="break-all text-emerald-300/80">
+                      <div className="space-y-1 rounded border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs">
+                        <div className="text-emerald-200">{t.admin.created}</div>
+                        <div className="break-all font-mono text-emerald-100">
                           {buildShareUrl(adminLastCreatedId)}
                         </div>
-                        <div className="mt-1 text-emerald-300/70">
+                        <div className="text-emerald-300/70">
                           {adminCopiedId === adminLastCreatedId
                             ? t.admin.copied
                             : t.admin.autoCopiedHint}
                         </div>
                       </div>
                     ) : null}
-                    <div className="space-y-1">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">
+
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                         {t.admin.listTitle}
                       </p>
                       {adminPresetsLoading && adminPresets === null ? (
                         <p className="text-xs text-slate-500">{t.admin.loading}</p>
                       ) : adminPresets && adminPresets.length > 0 ? (
-                        <ul className="space-y-1">
+                        <ul className="space-y-2">
                           {adminPresets.map((preset) => (
                             <li
                               key={preset.id}
-                              className="flex items-center justify-between gap-2 rounded bg-black/20 px-2 py-1 text-xs"
+                              className="space-y-1.5 rounded bg-black/20 p-2 text-xs"
                             >
-                              <div className="flex min-w-0 flex-col">
-                                <code className="text-slate-200">{preset.id}</code>
-                                <span className="text-slate-500">
-                                  {preset.language} ·{" "}
-                                  {new Date(preset.createdAt).toLocaleString()}
-                                </span>
+                              <div className="min-w-0">
+                                <div className="truncate font-medium text-slate-100">
+                                  {preset.label}
+                                </div>
+                                <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                                  <code>{preset.id}</code> · {preset.language} ·{" "}
+                                  {new Date(preset.createdAt).toLocaleDateString()}
+                                </div>
                               </div>
-                              <div className="flex shrink-0 gap-1">
+                              <div className="flex gap-1">
                                 <Button
-                                  variant="ghost"
+                                  variant="secondary"
                                   size="sm"
+                                  className="flex-1"
                                   onClick={() => void handleCopyPresetUrl(preset.id)}
                                 >
                                   {adminCopiedId === preset.id

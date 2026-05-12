@@ -30,6 +30,7 @@ export async function GET(
     }
     return NextResponse.json({
       id: preset.id,
+      label: preset.label,
       systemPrompt: preset.systemPrompt,
       greeting: preset.greeting,
       language: preset.language,
