@@ -109,14 +109,18 @@ export function normalizePresetInput(raw: unknown): NormalizeResult {
     ? Math.min(1.2, Math.max(0.7, voiceSpeedRaw))
     : 1.0;
 
+  // Caps are generous: the default Yan prompt plus the auto-appended
+  // MCP usage block already lands around 5KB, and admins often paste
+  // longer custom instructions. Redis hash field values are plenty big
+  // (~512MB), so the only thing we're guarding against here is abuse.
   if (!label) return { ok: false, reason: "label_missing" };
   if (label.length > 60) return { ok: false, reason: "label_too_long" };
   if (!systemPrompt) return { ok: false, reason: "system_prompt_missing" };
-  if (systemPrompt.length > 4000) {
+  if (systemPrompt.length > 16000) {
     return { ok: false, reason: "system_prompt_too_long" };
   }
   if (!greeting) return { ok: false, reason: "greeting_missing" };
-  if (greeting.length > 1000) return { ok: false, reason: "greeting_too_long" };
+  if (greeting.length > 4000) return { ok: false, reason: "greeting_too_long" };
   if (!language) return { ok: false, reason: "language_invalid" };
   return {
     ok: true,
