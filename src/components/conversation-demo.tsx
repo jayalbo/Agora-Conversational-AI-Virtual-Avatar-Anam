@@ -1084,6 +1084,9 @@ export function ConversationDemo() {
   }, [t.greetingDefault, t.settings.restoreDefaultsConfirm, t.systemPromptDefault]);
 
   // ---- Admin: shareable demo presets ----------------------------------
+  // Declared up here (not next to the other derived flags) because the
+  // effect that lazy-loads the preset list depends on it.
+  const isAdminUser = !!me && me.authenticated && me.isAdmin === true;
 
   const buildShareUrl = useCallback((presetId: string) => {
     if (typeof window === "undefined") return `?p=${presetId}`;
@@ -1378,7 +1381,6 @@ export function ConversationDemo() {
     me.authenticated &&
     (me.unlimited ||
       (effectiveRemainingSeconds ?? 0) > 0);
-  const isAdminUser = !!me && me.authenticated && me.isAdmin === true;
 
   // While we're still fetching identity, avoid a login flash.
   if (me === null) {
