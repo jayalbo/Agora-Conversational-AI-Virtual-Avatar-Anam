@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { authMode, getSessionUser } from "@/lib/auth";
+import { authMode, getSessionUser, isAdmin } from "@/lib/auth";
 import { getUsage, isBypassed, quotaSecondsPerUser } from "@/lib/quota";
 
 /**
@@ -26,6 +26,7 @@ export async function GET() {
       authenticated: true,
       authMode: authMode(),
       user: { id: user.id, email: user.email, name: user.name },
+      isAdmin: isAdmin(user),
       unlimited: usage.unlimited,
       bypass: isBypassed(user),
       quotaSeconds: usage.quotaSeconds,
@@ -49,6 +50,7 @@ export async function GET() {
         authenticated: true,
         authMode: authMode(),
         user: { id: user.id, email: user.email, name: user.name },
+        isAdmin: isAdmin(user),
         unlimited: true,
         bypass: false,
         quotaSeconds,

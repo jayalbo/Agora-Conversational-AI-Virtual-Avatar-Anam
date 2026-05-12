@@ -1,5 +1,5 @@
-import { Redis } from "@upstash/redis";
 import { authMode } from "./auth";
+import { redis } from "./redis";
 
 /**
  * Per-user DAILY time-budget tracking for the public demo.
@@ -58,25 +58,6 @@ function dayBucket(date: Date = new Date()): string {
 /** True if `bucket` looks like a valid "YYYY-MM-DD" string. */
 export function isValidBucket(bucket: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(bucket);
-}
-
-let _redis: Redis | null = null;
-function redis(): Redis {
-  if (_redis) return _redis;
-  // Works for any of the Redis providers Vercel links (Upstash, plain
-  // Redis). Reads UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN or
-  // the KV_REST_API_* fallbacks that older Vercel projects still carry.
-  const url =
-    process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token =
-    process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  if (!url || !token) {
-    throw new Error(
-      "Upstash Redis is not configured. Link a Redis store on Vercel (Storage → Upstash for Redis) or set UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN locally.",
-    );
-  }
-  _redis = new Redis({ url, token });
-  return _redis;
 }
 
 export function quotaSecondsPerUser(): number {

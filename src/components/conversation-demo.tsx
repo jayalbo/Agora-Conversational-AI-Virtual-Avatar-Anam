@@ -114,6 +114,7 @@ type Me =
       authenticated: true;
       authMode: "sso" | "bypass";
       user: AuthUser;
+      isAdmin?: boolean;
       unlimited: boolean;
       bypass: boolean;
       quotaSeconds: number;
@@ -210,7 +211,7 @@ declare global {
 }
 
 export function ConversationDemo() {
-  const { t, localeMeta } = useI18n();
+  const { t, localeMeta, setLocale } = useI18n();
 
   const [status, setStatus] = useState<"idle" | "connecting" | "connected">("idle");
   const [isMuted, setIsMuted] = useState(false);
@@ -237,6 +238,20 @@ export function ConversationDemo() {
   const [showChat, setShowChat] = useState(true);
   const [showCaptions, setShowCaptions] = useState(false);
   const transcriptBottomRef = useRef<HTMLDivElement | null>(null);
+
+  // Admin (@agora.io) — shareable demo presets. List is lazy-loaded
+  // when the admin opens the Settings drawer.
+  type AdminPresetRow = {
+    id: string;
+    language: "en" | "pt-BR" | "es-MX";
+    createdAt: number;
+  };
+  const [adminPresets, setAdminPresets] = useState<AdminPresetRow[] | null>(null);
+  const [adminPresetsLoading, setAdminPresetsLoading] = useState(false);
+  const [adminPresetError, setAdminPresetError] = useState<string | null>(null);
+  const [adminLastCreatedId, setAdminLastCreatedId] = useState<string | null>(null);
+  const [adminCopiedId, setAdminCopiedId] = useState<string | null>(null);
+  const [adminSaving, setAdminSaving] = useState(false);
 
   // Auth + quota state. `me` is the server's view of who we are and
   // how much time we have left; it's refetched after login and after
@@ -330,6 +345,59 @@ export function ConversationDemo() {
     url.searchParams.delete("authError");
     window.history.replaceState({}, "", url.toString());
   }, [t.errors]);
+
+  // Shared demo preset: if the URL carries ?p=<id>, fetch the preset
+  // and seed the call settings with it BEFORE the user hits start.
+  // The endpoint requires SSO, so we wait until `me` says we're
+  // authenticated. We never strip the param — refreshing should
+  // re-apply the same preset, and the customer doesn't see it in the
+  // UI anyway.
+  const presetAppliedRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (presetAppliedRef.current) return;
+    if (!me || !me.authenticated) return;
+    const url = new URL(window.location.href);
+    const presetId = url.searchParams.get("p");
+    if (!presetId) return;
+
+    presetAppliedRef.current = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/presets/${encodeURIComponent(presetId)}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          if (res.status === 404) {
+            console.warn(`[preset] ${presetId} not found`);
+          } else {
+            console.warn(`[preset] ${presetId} load failed: ${res.status}`);
+          }
+          return;
+        }
+        const preset = (await res.json()) as {
+          systemPrompt: string;
+          greeting: string;
+          language: "en" | "pt-BR" | "es-MX";
+          voiceSpeed: number;
+        };
+        // Setting the locale first so the i18n default for prompt/
+        // greeting matches before we override them.
+        setLocale(preset.language);
+        setSystemPrompt(preset.systemPrompt);
+        setGreeting(preset.greeting);
+        setVoiceSpeed(preset.voiceSpeed);
+        // Mark both prompt and greeting as touched so a later locale
+        // switch from the UI doesn't silently clobber the preset
+        // copy. These flags belong to the same hydration system that
+        // gates auto-translation of the defaults.
+        systemPromptTouchedRef.current = true;
+        greetingTouchedRef.current = true;
+      } catch (err) {
+        console.warn("[preset] load failed", err);
+      }
+    })();
+  }, [me, setLocale]);
 
   // Enumerate microphones. Labels are hidden until the user grants
   // microphone permission, so we re-enumerate after the call starts too
@@ -1015,6 +1083,136 @@ export function ConversationDemo() {
     }
   }, [t.greetingDefault, t.settings.restoreDefaultsConfirm, t.systemPromptDefault]);
 
+  // ---- Admin: shareable demo presets ----------------------------------
+
+  const buildShareUrl = useCallback((presetId: string) => {
+    if (typeof window === "undefined") return `?p=${presetId}`;
+    const url = new URL(window.location.origin);
+    url.searchParams.set("p", presetId);
+    return url.toString();
+  }, []);
+
+  const refreshAdminPresets = useCallback(async () => {
+    setAdminPresetError(null);
+    setAdminPresetsLoading(true);
+    try {
+      const res = await fetch("/api/presets", { cache: "no-store" });
+      if (!res.ok) {
+        setAdminPresetError(t.admin.loadFailed);
+        return;
+      }
+      const json = (await res.json()) as { presets: AdminPresetRow[] };
+      setAdminPresets(json.presets ?? []);
+    } catch {
+      setAdminPresetError(t.admin.loadFailed);
+    } finally {
+      setAdminPresetsLoading(false);
+    }
+  }, [t.admin.loadFailed]);
+
+  // Lazy-load the preset list the first time an admin opens Settings.
+  useEffect(() => {
+    if (!showSettings) return;
+    if (!isAdminUser) return;
+    if (adminPresets !== null) return;
+    if (adminPresetsLoading) return;
+    void refreshAdminPresets();
+  }, [adminPresets, adminPresetsLoading, isAdminUser, refreshAdminPresets, showSettings]);
+
+  const handleCreatePreset = useCallback(async () => {
+    setAdminPresetError(null);
+    setAdminSaving(true);
+    try {
+      const res = await fetch("/api/presets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemPrompt: systemPrompt.trim(),
+          greeting: greeting.trim(),
+          language: localeMeta.code,
+          voiceSpeed,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (body.error === "preset_limit_reached") {
+          setAdminPresetError(t.admin.limitReached);
+        } else if (body.error === "invalid_preset_payload") {
+          setAdminPresetError(t.admin.invalidPayload);
+        } else {
+          setAdminPresetError(t.admin.saveFailed);
+        }
+        return;
+      }
+      const json = (await res.json()) as { id: string };
+      setAdminLastCreatedId(json.id);
+      await refreshAdminPresets();
+      // Auto-copy the freshly minted URL so Yan can paste straight
+      // into Slack/email.
+      try {
+        await navigator.clipboard.writeText(buildShareUrl(json.id));
+        setAdminCopiedId(json.id);
+        window.setTimeout(() => {
+          setAdminCopiedId((prev) => (prev === json.id ? null : prev));
+        }, 2000);
+      } catch {
+        // clipboard might be blocked; copy button on the row still works.
+      }
+    } catch {
+      setAdminPresetError(t.admin.saveFailed);
+    } finally {
+      setAdminSaving(false);
+    }
+  }, [
+    buildShareUrl,
+    greeting,
+    localeMeta.code,
+    refreshAdminPresets,
+    systemPrompt,
+    t.admin.invalidPayload,
+    t.admin.limitReached,
+    t.admin.saveFailed,
+    voiceSpeed,
+  ]);
+
+  const handleCopyPresetUrl = useCallback(
+    async (presetId: string) => {
+      try {
+        await navigator.clipboard.writeText(buildShareUrl(presetId));
+        setAdminCopiedId(presetId);
+        window.setTimeout(() => {
+          setAdminCopiedId((prev) => (prev === presetId ? null : prev));
+        }, 2000);
+      } catch {
+        // ignore — older browsers / insecure contexts.
+      }
+    },
+    [buildShareUrl],
+  );
+
+  const handleDeletePreset = useCallback(
+    async (presetId: string) => {
+      if (typeof window !== "undefined") {
+        const ok = window.confirm(t.admin.deleteConfirm);
+        if (!ok) return;
+      }
+      try {
+        const res = await fetch(`/api/presets/${encodeURIComponent(presetId)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          setAdminPresetError(t.admin.deleteFailed);
+          return;
+        }
+        if (adminLastCreatedId === presetId) setAdminLastCreatedId(null);
+        await refreshAdminPresets();
+      } catch {
+        setAdminPresetError(t.admin.deleteFailed);
+      }
+    },
+    [adminLastCreatedId, refreshAdminPresets, t.admin.deleteConfirm, t.admin.deleteFailed],
+  );
+
   const toggleMute = useCallback(async () => {
     const next = !isMuted;
     setIsMuted(next);
@@ -1180,6 +1378,7 @@ export function ConversationDemo() {
     me.authenticated &&
     (me.unlimited ||
       (effectiveRemainingSeconds ?? 0) > 0);
+  const isAdminUser = !!me && me.authenticated && me.isAdmin === true;
 
   // While we're still fetching identity, avoid a login flash.
   if (me === null) {
@@ -1633,6 +1832,94 @@ export function ConversationDemo() {
                   />
                   <p className="text-xs text-slate-500">{t.settings.systemPromptHint}</p>
                 </div>
+
+                {isAdminUser ? (
+                  <div className="space-y-3 rounded-lg border border-[color:var(--agora-primary)]/30 bg-[color:var(--agora-primary)]/5 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--agora-blue)]">
+                          {t.admin.sectionTitle}
+                        </p>
+                        <p className="text-xs text-slate-400">{t.admin.sectionHint}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => void handleCreatePreset()}
+                        disabled={
+                          adminSaving ||
+                          !systemPrompt.trim() ||
+                          !greeting.trim()
+                        }
+                      >
+                        {adminSaving ? t.admin.saving : t.admin.save}
+                      </Button>
+                    </div>
+                    {adminPresetError ? (
+                      <p className="text-xs text-rose-300">{adminPresetError}</p>
+                    ) : null}
+                    {adminLastCreatedId ? (
+                      <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5 text-xs">
+                        <div className="text-emerald-200">
+                          {t.admin.created}{" "}
+                          <code className="text-emerald-100">{adminLastCreatedId}</code>
+                        </div>
+                        <div className="break-all text-emerald-300/80">
+                          {buildShareUrl(adminLastCreatedId)}
+                        </div>
+                        <div className="mt-1 text-emerald-300/70">
+                          {adminCopiedId === adminLastCreatedId
+                            ? t.admin.copied
+                            : t.admin.autoCopiedHint}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="space-y-1">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">
+                        {t.admin.listTitle}
+                      </p>
+                      {adminPresetsLoading && adminPresets === null ? (
+                        <p className="text-xs text-slate-500">{t.admin.loading}</p>
+                      ) : adminPresets && adminPresets.length > 0 ? (
+                        <ul className="space-y-1">
+                          {adminPresets.map((preset) => (
+                            <li
+                              key={preset.id}
+                              className="flex items-center justify-between gap-2 rounded bg-black/20 px-2 py-1 text-xs"
+                            >
+                              <div className="flex min-w-0 flex-col">
+                                <code className="text-slate-200">{preset.id}</code>
+                                <span className="text-slate-500">
+                                  {preset.language} ·{" "}
+                                  {new Date(preset.createdAt).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex shrink-0 gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void handleCopyPresetUrl(preset.id)}
+                                >
+                                  {adminCopiedId === preset.id
+                                    ? t.admin.copied
+                                    : t.admin.copy}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void handleDeletePreset(preset.id)}
+                                >
+                                  {t.admin.delete}
+                                </Button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-slate-500">{t.admin.empty}</p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="flex items-center justify-between gap-4 border-t border-white/5 pt-4">
                   <p className="text-xs text-slate-500">{t.settings.restoreDefaultsHint}</p>

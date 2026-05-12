@@ -17,6 +17,21 @@ export type SessionUser = {
   name: string;
 };
 
+/**
+ * Admin gate. Any signed-in user can use the demo; admins can also
+ * create shareable preset URLs for customers. We hardcode the @agora.io
+ * domain by design — admin status is tied to "is on the Agora team",
+ * not to a per-user flag in a database. The check is also applied
+ * server-side on every preset mutation route; the client uses this
+ * only to decide what UI to render.
+ */
+const ADMIN_EMAIL_DOMAIN = "@agora.io";
+
+export function isAdmin(user: Pick<SessionUser, "email"> | null | undefined): boolean {
+  if (!user || !user.email) return false;
+  return user.email.toLowerCase().endsWith(ADMIN_EMAIL_DOMAIN);
+}
+
 /** Cookie names used for the session + for the short-lived OAuth state. */
 export const SESSION_COOKIE = "yan_session";
 export const OAUTH_STATE_COOKIE = "yan_oauth_state";

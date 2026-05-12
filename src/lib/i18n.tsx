@@ -112,6 +112,26 @@ type Dictionary = {
     restoreDefaultsHint: string;
     restoreDefaultsConfirm: string;
   };
+  admin: {
+    sectionTitle: string;
+    sectionHint: string;
+    save: string;
+    saving: string;
+    saveFailed: string;
+    invalidPayload: string;
+    limitReached: string;
+    created: string;
+    autoCopiedHint: string;
+    listTitle: string;
+    empty: string;
+    loading: string;
+    loadFailed: string;
+    copy: string;
+    copied: string;
+    delete: string;
+    deleteConfirm: string;
+    deleteFailed: string;
+  };
   errors: {
     rtmNotReady: string;
     sendFailed: string;
@@ -210,6 +230,29 @@ const en: Dictionary = {
     restoreDefaultsHint:
       "Resets every field on this page to its original value.",
     restoreDefaultsConfirm: "Reset all settings to their defaults?",
+  },
+  admin: {
+    sectionTitle: "Shareable demo (Agora team only)",
+    sectionHint:
+      "Save the current prompt, greeting, language, and voice speed as a shareable URL. Anyone signed into SSO who opens the link gets this configuration before their call starts.",
+    save: "Save & copy link",
+    saving: "Saving…",
+    saveFailed: "Couldn't save the preset. Try again.",
+    invalidPayload:
+      "Need a non-empty system prompt and greeting before saving.",
+    limitReached:
+      "You've hit the 50-preset limit. Delete one before saving a new one.",
+    created: "Preset created:",
+    autoCopiedHint: "Link copied to your clipboard.",
+    listTitle: "Your presets",
+    empty: "No presets yet. Save one above.",
+    loading: "Loading presets…",
+    loadFailed: "Couldn't load your presets.",
+    copy: "Copy",
+    copied: "Copied",
+    delete: "Delete",
+    deleteConfirm: "Delete this preset? Existing shared links will stop working.",
+    deleteFailed: "Couldn't delete the preset. Try again.",
   },
   errors: {
     rtmNotReady:
@@ -344,6 +387,29 @@ const ptBR: Dictionary = {
     restoreDefaultsHint:
       "Redefine todos os campos desta página para o valor original.",
     restoreDefaultsConfirm: "Restaurar todas as configurações para os padrões?",
+  },
+  admin: {
+    sectionTitle: "Demo compartilhável (somente time Agora)",
+    sectionHint:
+      "Salve o prompt, a saudação, o idioma e a velocidade de voz atuais como uma URL compartilhável. Qualquer pessoa logada via SSO que abrir o link vai cair direto nessa configuração.",
+    save: "Salvar e copiar link",
+    saving: "Salvando…",
+    saveFailed: "Não foi possível salvar o preset. Tente de novo.",
+    invalidPayload:
+      "É preciso ter prompt do sistema e saudação preenchidos antes de salvar.",
+    limitReached:
+      "Você atingiu o limite de 50 presets. Apague um antes de salvar outro.",
+    created: "Preset criado:",
+    autoCopiedHint: "Link copiado para a área de transferência.",
+    listTitle: "Seus presets",
+    empty: "Nenhum preset ainda. Salve um acima.",
+    loading: "Carregando presets…",
+    loadFailed: "Não foi possível carregar seus presets.",
+    copy: "Copiar",
+    copied: "Copiado",
+    delete: "Apagar",
+    deleteConfirm: "Apagar este preset? Os links já compartilhados vão parar de funcionar.",
+    deleteFailed: "Não foi possível apagar o preset. Tente de novo.",
   },
   errors: {
     rtmNotReady:
@@ -480,6 +546,30 @@ const esMX: Dictionary = {
       "Restablece todos los campos de esta página a su valor original.",
     restoreDefaultsConfirm:
       "¿Restablecer todos los ajustes a los valores predeterminados?",
+  },
+  admin: {
+    sectionTitle: "Demo compartible (solo equipo Agora)",
+    sectionHint:
+      "Guarda el prompt, el saludo, el idioma y la velocidad de voz actuales como una URL compartible. Cualquiera que abra el link tras iniciar sesión con SSO entra con esta configuración.",
+    save: "Guardar y copiar link",
+    saving: "Guardando…",
+    saveFailed: "No se pudo guardar el preset. Inténtalo otra vez.",
+    invalidPayload:
+      "Necesitas un prompt del sistema y un saludo antes de guardar.",
+    limitReached:
+      "Llegaste al límite de 50 presets. Borra uno antes de guardar otro.",
+    created: "Preset creado:",
+    autoCopiedHint: "Link copiado al portapapeles.",
+    listTitle: "Tus presets",
+    empty: "Aún no hay presets. Guarda uno arriba.",
+    loading: "Cargando presets…",
+    loadFailed: "No se pudieron cargar tus presets.",
+    copy: "Copiar",
+    copied: "Copiado",
+    delete: "Borrar",
+    deleteConfirm:
+      "¿Borrar este preset? Los links ya compartidos dejarán de funcionar.",
+    deleteFailed: "No se pudo borrar el preset. Inténtalo otra vez.",
   },
   errors: {
     rtmNotReady:
