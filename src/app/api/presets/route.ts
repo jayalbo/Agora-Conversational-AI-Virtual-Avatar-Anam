@@ -53,16 +53,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const input = normalizePresetInput(body);
-  if (!input) {
+  const result = normalizePresetInput(body);
+  if (!result.ok) {
+    console.warn(`[presets] reject create: ${result.reason}`);
     return NextResponse.json(
-      { error: "invalid_preset_payload" },
+      { error: "invalid_preset_payload", reason: result.reason },
       { status: 400 },
     );
   }
 
   try {
-    const preset = await createPreset(user, input);
+    const preset = await createPreset(user, result.input);
     return NextResponse.json({
       id: preset.id,
       createdAt: preset.createdAt,

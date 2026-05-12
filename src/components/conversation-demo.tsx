@@ -1181,11 +1181,20 @@ export function ConversationDemo() {
         }),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          reason?: string;
+        };
         if (body.error === "preset_limit_reached") {
           setAdminPresetError(t.admin.limitReached);
         } else if (body.error === "invalid_preset_payload") {
-          setAdminPresetError(t.admin.invalidPayload);
+          // Surface the exact field that failed so we don't have to
+          // guess. The server-side reasons are stable strings.
+          setAdminPresetError(
+            body.reason
+              ? `${t.admin.invalidPayload} (${body.reason})`
+              : t.admin.invalidPayload,
+          );
         } else {
           setAdminPresetError(t.admin.saveFailed);
         }

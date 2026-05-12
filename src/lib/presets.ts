@@ -73,8 +73,23 @@ export function isValidPresetId(id: string): boolean {
 }
 
 /** Quick sanity-check + clamp on incoming preset payloads. */
-export function normalizePresetInput(raw: unknown): PresetInput | null {
-  if (!raw || typeof raw !== "object") return null;
+export type NormalizeResult =
+  | { ok: true; input: PresetInput }
+  | {
+      ok: false;
+      reason:
+        | "not_object"
+        | "label_missing"
+        | "label_too_long"
+        | "system_prompt_missing"
+        | "system_prompt_too_long"
+        | "greeting_missing"
+        | "greeting_too_long"
+        | "language_invalid";
+    };
+
+export function normalizePresetInput(raw: unknown): NormalizeResult {
+  if (!raw || typeof raw !== "object") return { ok: false, reason: "not_object" };
   const obj = raw as Record<string, unknown>;
   const label =
     typeof obj.label === "string" ? obj.label.trim() : "";
@@ -94,11 +109,19 @@ export function normalizePresetInput(raw: unknown): PresetInput | null {
     ? Math.min(1.2, Math.max(0.7, voiceSpeedRaw))
     : 1.0;
 
-  if (!label || label.length > 60) return null;
-  if (!systemPrompt || systemPrompt.length > 4000) return null;
-  if (!greeting || greeting.length > 1000) return null;
-  if (!language) return null;
-  return { label, systemPrompt, greeting, language, voiceSpeed };
+  if (!label) return { ok: false, reason: "label_missing" };
+  if (label.length > 60) return { ok: false, reason: "label_too_long" };
+  if (!systemPrompt) return { ok: false, reason: "system_prompt_missing" };
+  if (systemPrompt.length > 4000) {
+    return { ok: false, reason: "system_prompt_too_long" };
+  }
+  if (!greeting) return { ok: false, reason: "greeting_missing" };
+  if (greeting.length > 1000) return { ok: false, reason: "greeting_too_long" };
+  if (!language) return { ok: false, reason: "language_invalid" };
+  return {
+    ok: true,
+    input: { label, systemPrompt, greeting, language, voiceSpeed },
+  };
 }
 
 export async function createPreset(
