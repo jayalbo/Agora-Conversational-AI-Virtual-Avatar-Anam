@@ -1901,7 +1901,7 @@ export function ConversationDemo() {
                       />
                       <Button
                         size="sm"
-                        className="w-full"
+                        className="w-full whitespace-nowrap"
                         onClick={() => void handleCreatePreset()}
                         disabled={
                           adminSaving ||
@@ -1958,7 +1958,7 @@ export function ConversationDemo() {
                                 <Button
                                   variant="secondary"
                                   size="sm"
-                                  className="flex-1"
+                                  className="flex-1 whitespace-nowrap"
                                   onClick={() => void handleCopyPresetUrl(preset.id)}
                                 >
                                   {adminCopiedId === preset.id
@@ -1968,6 +1968,7 @@ export function ConversationDemo() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  className="whitespace-nowrap"
                                   onClick={() => void handleDeletePreset(preset.id)}
                                 >
                                   {t.admin.delete}
