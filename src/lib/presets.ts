@@ -210,21 +210,27 @@ export async function getPreset(id: string): Promise<Preset | null> {
       ? raw.voiceSpeed
       : Number.parseFloat(String(raw.voiceSpeed));
   let documents: KbDocument[] = [];
-  if (typeof raw.documents === "string" && raw.documents) {
+  // Upstash's REST client auto-deserializes JSON strings on read, so
+  // raw.documents may arrive as a parsed array rather than a string.
+  const rawDocs = raw.documents;
+  let parsedDocs: unknown;
+  if (Array.isArray(rawDocs)) {
+    parsedDocs = rawDocs;
+  } else if (typeof rawDocs === "string" && rawDocs) {
     try {
-      const parsed: unknown = JSON.parse(raw.documents);
-      if (Array.isArray(parsed)) {
-        documents = parsed.filter(
-          (d): d is KbDocument =>
-            d !== null &&
-            typeof d === "object" &&
-            typeof (d as Record<string, unknown>).filename === "string" &&
-            typeof (d as Record<string, unknown>).text === "string",
-        );
-      }
+      parsedDocs = JSON.parse(rawDocs);
     } catch {
-      // malformed JSON — fall back to empty
+      // malformed — fall back to empty
     }
+  }
+  if (Array.isArray(parsedDocs)) {
+    documents = parsedDocs.filter(
+      (d): d is KbDocument =>
+        d !== null &&
+        typeof d === "object" &&
+        typeof (d as Record<string, unknown>).filename === "string" &&
+        typeof (d as Record<string, unknown>).text === "string",
+    );
   }
 
   return {
