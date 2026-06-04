@@ -435,6 +435,9 @@ export function ConversationDemo() {
         setVoiceSpeed(preset.voiceSpeed);
         if (Array.isArray(preset.documents) && preset.documents.length > 0) {
           setSessionDocuments(preset.documents);
+          console.log(`[preset] loaded ${preset.documents.length} KB document(s) from preset`);
+        } else {
+          console.log("[preset] no KB documents in this preset");
         }
         // Mark both prompt and greeting as touched so a later locale
         // switch from the UI doesn't silently clobber the preset

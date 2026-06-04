@@ -28,6 +28,7 @@ export async function GET(
     if (!preset) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }
+    console.log(`[presets] GET ${id}: ${preset.documents?.length ?? 0} KB document(s)`);
     return NextResponse.json({
       id: preset.id,
       label: preset.label,

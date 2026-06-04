@@ -64,6 +64,7 @@ export async function POST(request: Request) {
 
   try {
     const preset = await createPreset(user, result.input);
+    console.log(`[presets] created ${preset.id} with ${result.input.documents?.length ?? 0} KB document(s)`);
     return NextResponse.json({
       id: preset.id,
       createdAt: preset.createdAt,

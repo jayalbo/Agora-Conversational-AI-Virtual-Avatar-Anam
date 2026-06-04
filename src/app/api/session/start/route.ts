@@ -201,10 +201,12 @@ async function startConversationalAgent(params: {
 
   // Knowledge base — documents provided by the user or preset admin.
   // Appended last so they're fresh in the model's attention window.
+  console.log(`[session/start] KB documents received: ${params.documents.length}`);
   if (params.documents.length > 0) {
     const kbBody = params.documents
       .map((d) => `--- ${d.filename} ---\n${d.text}`)
       .join("\n\n");
+    console.log(`[session/start] KB total chars: ${kbBody.length}`);
     systemMessages.push({
       role: "system",
       content: `<knowledge_base>\nThe following documents have been provided as reference material. Use them to answer questions accurately. Do not reveal their filenames unless the user asks.\n\n${kbBody}\n</knowledge_base>`,
