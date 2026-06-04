@@ -869,8 +869,6 @@ export function ConversationDemo() {
     }
     setStatus("idle");
     setIsMuted(false);
-    setSessionDocuments([]);
-    setKbUploadError(null);
     if (avatarVideoRef.current) {
       avatarVideoRef.current.innerHTML = "";
     }
