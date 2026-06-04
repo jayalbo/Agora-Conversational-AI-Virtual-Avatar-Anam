@@ -1817,7 +1817,7 @@ export function ConversationDemo() {
                   <X className="h-4 w-4" />
                 </Button>
               </CardHeader>
-              <CardContent className="scrollbar-thin flex-1 space-y-4 overflow-y-auto">
+              <CardContent className="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto">
                 <div className="space-y-2">
                   <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                     {t.settings.language}

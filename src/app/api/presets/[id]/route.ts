@@ -36,6 +36,7 @@ export async function GET(
       language: preset.language,
       voiceSpeed: preset.voiceSpeed,
       createdAt: preset.createdAt,
+      documents: preset.documents ?? [],
     });
   } catch (err) {
     console.error("[presets] get failed:", err);
