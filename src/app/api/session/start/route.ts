@@ -170,12 +170,11 @@ async function startConversationalAgent(params: {
         ]
       : [];
 
+  // The greeting is delivered separately via `greeting_message` (llm
+  // config) and `fixed_greeting` (parameters), so we don't repeat it as
+  // a system message here.
   const systemMessages: Array<{ role: "system"; content: string }> = [
     { role: "system", content: params.systemPrompt },
-    {
-      role: "system",
-      content: `When the conversation begins, greet the user with exactly: "${params.greeting}"`,
-    },
   ];
 
   // Vision addendum — only added when the client has the camera on, so
@@ -200,16 +199,30 @@ async function startConversationalAgent(params: {
   }
 
   // Knowledge base — documents provided by the user or preset admin.
-  // Appended last so they're fresh in the model's attention window.
+  // Appended last so they're fresh in the model's attention window. Each
+  // document gets its own system message so the model treats them as
+  // distinct sources rather than one undifferentiated blob, and the
+  // intro explicitly overrides the persona's "stay on Agora" steering so
+  // questions about the documents are always answered.
   console.log(`[session/start] KB documents received: ${params.documents.length}`);
   if (params.documents.length > 0) {
-    const kbBody = params.documents
-      .map((d) => `--- ${d.filename} ---\n${d.text}`)
-      .join("\n\n");
-    console.log(`[session/start] KB total chars: ${kbBody.length}`);
+    const totalChars = params.documents.reduce((n, d) => n + d.text.length, 0);
+    console.log(
+      `[session/start] KB: ${params.documents.length} doc(s), ${totalChars} total chars`,
+    );
     systemMessages.push({
       role: "system",
-      content: `<knowledge_base>\nThe following documents have been provided as reference material. Use them to answer questions accurately. Do not reveal their filenames unless the user asks.\n\n${kbBody}\n</knowledge_base>`,
+      content: [
+        `KNOWLEDGE BASE: ${params.documents.length} document(s) have been attached to this conversation as authoritative reference material. They follow, one per message.`,
+        "These documents are fully on-topic. When the user asks anything about their contents — a person, a spec, a number, a detail — answer directly and completely from the documents. This OVERRIDES any instruction to stay on Agora topics; the documents take priority.",
+        "Treat the document text as ground truth. Do not say you don't have information that is present in the documents. Do not reveal a document's filename unless the user asks for it.",
+      ].join(" "),
+    });
+    params.documents.forEach((doc, i) => {
+      systemMessages.push({
+        role: "system",
+        content: `--- BEGIN DOCUMENT ${i + 1} of ${params.documents.length}: ${doc.filename} ---\n${doc.text}\n--- END DOCUMENT ${i + 1}: ${doc.filename} ---`,
+      });
     });
   }
 
