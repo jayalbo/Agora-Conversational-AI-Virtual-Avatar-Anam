@@ -539,6 +539,8 @@ export function ConversationDemo() {
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const avatarVideoRef = useRef<HTMLDivElement | null>(null);
   const selfViewRef = useRef<HTMLDivElement | null>(null);
+  const sessionFileInputRef = useRef<HTMLInputElement | null>(null);
+  const adminFileInputRef = useRef<HTMLInputElement | null>(null);
   const applyTranscriptUpdate = useCallback((items: any[], localUid: string) => {
     // The toolkit delivers the full chat history as one item per
     // (uid, turn_id). In TEXT mode each item holds the final assembled
@@ -1975,16 +1977,21 @@ export function ConversationDemo() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <label className="cursor-pointer rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-300 hover:bg-white/10">
+                    <button
+                      type="button"
+                      className="cursor-pointer rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-300 hover:bg-white/10"
+                      onClick={() => sessionFileInputRef.current?.click()}
+                    >
                       Choose files…
-                      <input
-                        type="file"
-                        accept=".pdf,.docx,.txt,.md"
-                        multiple
-                        className="sr-only"
-                        onChange={handleSessionFileUpload}
-                      />
-                    </label>
+                    </button>
+                    <input
+                      ref={sessionFileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,.txt,.md"
+                      multiple
+                      className="hidden"
+                      onChange={handleSessionFileUpload}
+                    />
                     <span className="text-[10px] text-slate-500">PDF, DOCX, TXT, MD</span>
                   </div>
                   {sessionUploadQueue.length > 0 ? (
@@ -2055,17 +2062,23 @@ export function ConversationDemo() {
                           Knowledge base <span className="font-normal text-slate-500">(optional)</span>
                         </p>
                         <div className="flex items-center gap-2">
-                          <label className="cursor-pointer rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-300 hover:bg-white/10">
+                          <button
+                            type="button"
+                            className="cursor-pointer rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-300 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={adminSaving}
+                            onClick={() => adminFileInputRef.current?.click()}
+                          >
                             Choose files…
-                            <input
-                              type="file"
-                              accept=".pdf,.docx,.txt,.md"
-                              multiple
-                              className="sr-only"
-                              disabled={adminSaving}
-                              onChange={handleAdminFileUpload}
-                            />
-                          </label>
+                          </button>
+                          <input
+                            ref={adminFileInputRef}
+                            type="file"
+                            accept=".pdf,.docx,.txt,.md"
+                            multiple
+                            className="hidden"
+                            disabled={adminSaving}
+                            onChange={handleAdminFileUpload}
+                          />
                           <span className="text-[10px] text-slate-500">PDF, DOCX, TXT, MD</span>
                         </div>
                         {adminUploadQueue.length > 0 ? (
