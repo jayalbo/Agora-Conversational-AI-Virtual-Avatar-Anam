@@ -1802,7 +1802,7 @@ export function ConversationDemo() {
         {/* Settings drawer (overlay) */}
         {showSettings ? (
           <div className="absolute inset-0 z-20 flex items-start justify-end bg-black/40 p-4 backdrop-blur-sm md:p-6">
-            <Card className="flex max-h-full w-full max-w-md flex-col overflow-hidden">
+            <Card className="flex max-h-[calc(100%-2rem)] w-full max-w-md flex-col overflow-hidden md:max-h-[calc(100%-3rem)]">
               <CardHeader className="flex flex-row items-start justify-between gap-4">
                 <div>
                   <CardTitle>{t.settings.title}</CardTitle>

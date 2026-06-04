@@ -1,4 +1,3 @@
-import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
 import { NextResponse } from "next/server";
 
@@ -28,8 +27,10 @@ async function extractText(
   const ext = filename.split(".").pop()?.toLowerCase();
 
   if (mimeType === "application/pdf" || ext === "pdf") {
-    const result = await pdfParse(buffer);
-    return result.text;
+    const { getDocumentProxy, extractText } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
+    const { text } = await extractText(pdf, { mergePages: true });
+    return text;
   }
 
   if (
