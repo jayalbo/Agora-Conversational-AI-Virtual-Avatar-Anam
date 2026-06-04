@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
 import { quotaSecondsPerUser, reserve } from "@/lib/quota";
+import type { KbDocument } from "@/lib/presets";
 
 type McpConfig = { enabled: false } | { enabled: true; serverUrl: string };
 type VisionConfig = { enabled: boolean };
@@ -16,6 +17,7 @@ type StartSessionPayload = {
   vision?: VisionConfig;
   fillerPhrases?: string[];
   asrLanguage?: string;
+  documents?: KbDocument[];
   // When the user brings their own Agora account, the client provides
   // these per call. Otherwise the server falls back to the values baked
   // into environment variables (useful for local dev).
@@ -90,6 +92,7 @@ async function startConversationalAgent(params: {
   vision: VisionConfig;
   fillerPhrases: string[];
   asrLanguage: string;
+  documents: KbDocument[];
 }) {
   const anamApiKey = process.env.ANAM_API_KEY;
   const anamAvatarId = process.env.ANAM_AVATAR_ID;
@@ -193,6 +196,18 @@ async function startConversationalAgent(params: {
         "Beyond badges: briefly acknowledge other obvious visual cues when relevant (a laptop sticker, a conference tote, a t-shirt logo) as natural conversational hooks, but keep voice-first priorities — short spoken replies, no describing the scene unprompted.",
         "If the user explicitly asks what you see ('what am I holding?', 'what color is my shirt?'), answer from the latest frame confidently and concisely.",
       ].join(" "),
+    });
+  }
+
+  // Knowledge base — documents provided by the user or preset admin.
+  // Appended last so they're fresh in the model's attention window.
+  if (params.documents.length > 0) {
+    const kbBody = params.documents
+      .map((d) => `--- ${d.filename} ---\n${d.text}`)
+      .join("\n\n");
+    systemMessages.push({
+      role: "system",
+      content: `<knowledge_base>\nThe following documents have been provided as reference material. Use them to answer questions accurately. Do not reveal their filenames unless the user asks.\n\n${kbBody}\n</knowledge_base>`,
     });
   }
 
@@ -443,6 +458,15 @@ export async function POST(request: Request) {
       voiceSpeed: clampVoiceSpeed(payload.voiceSpeed),
       mcp,
       vision,
+      documents: Array.isArray(payload.documents)
+        ? payload.documents.filter(
+            (d) =>
+              d &&
+              typeof d === "object" &&
+              typeof d.filename === "string" &&
+              typeof d.text === "string",
+          )
+        : [],
       fillerPhrases:
         Array.isArray(payload.fillerPhrases) &&
         payload.fillerPhrases.every((p) => typeof p === "string" && p.trim()) &&

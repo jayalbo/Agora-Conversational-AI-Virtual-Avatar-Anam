@@ -22,6 +22,8 @@ import { redis } from "./redis";
 /** Locale tags the rest of the app understands. */
 export type PresetLanguage = "en" | "pt-BR" | "es-MX";
 
+export type KbDocument = { filename: string; text: string };
+
 export type PresetInput = {
   /** Human-readable name so admins can tell their presets apart. */
   label: string;
@@ -29,6 +31,7 @@ export type PresetInput = {
   greeting: string;
   language: PresetLanguage;
   voiceSpeed: number;
+  documents?: KbDocument[];
 };
 
 export type Preset = PresetInput & {
@@ -109,6 +112,23 @@ export function normalizePresetInput(raw: unknown): NormalizeResult {
     ? Math.min(1.2, Math.max(0.7, voiceSpeedRaw))
     : 1.0;
 
+  // Accept optional documents array; silently drop malformed entries.
+  const rawDocs = Array.isArray(obj.documents) ? obj.documents : [];
+  const documents: KbDocument[] = [];
+  for (const d of rawDocs) {
+    if (
+      d &&
+      typeof d === "object" &&
+      typeof (d as Record<string, unknown>).filename === "string" &&
+      typeof (d as Record<string, unknown>).text === "string"
+    ) {
+      documents.push({
+        filename: (d as KbDocument).filename,
+        text: (d as KbDocument).text,
+      });
+    }
+  }
+
   // Caps are generous: the default Yan prompt plus the auto-appended
   // MCP usage block already lands around 5KB, and admins often paste
   // longer custom instructions. Redis hash field values are plenty big
@@ -124,7 +144,7 @@ export function normalizePresetInput(raw: unknown): NormalizeResult {
   if (!language) return { ok: false, reason: "language_invalid" };
   return {
     ok: true,
-    input: { label, systemPrompt, greeting, language, voiceSpeed },
+    input: { label, systemPrompt, greeting, language, voiceSpeed, documents },
   };
 }
 
@@ -165,6 +185,7 @@ export async function createPreset(
     voiceSpeed: record.voiceSpeed,
     createdBy: record.createdBy,
     createdAt: record.createdAt,
+    documents: JSON.stringify(record.documents ?? []),
   });
   await redis().zadd(presetIndexKey(user.email), {
     score: now,
@@ -188,6 +209,24 @@ export async function getPreset(id: string): Promise<Preset | null> {
     typeof raw.voiceSpeed === "number"
       ? raw.voiceSpeed
       : Number.parseFloat(String(raw.voiceSpeed));
+  let documents: KbDocument[] = [];
+  if (typeof raw.documents === "string" && raw.documents) {
+    try {
+      const parsed: unknown = JSON.parse(raw.documents);
+      if (Array.isArray(parsed)) {
+        documents = parsed.filter(
+          (d): d is KbDocument =>
+            d !== null &&
+            typeof d === "object" &&
+            typeof (d as Record<string, unknown>).filename === "string" &&
+            typeof (d as Record<string, unknown>).text === "string",
+        );
+      }
+    } catch {
+      // malformed JSON — fall back to empty
+    }
+  }
+
   return {
     id,
     // Older presets created before the label field existed fall back
@@ -202,6 +241,7 @@ export async function getPreset(id: string): Promise<Preset | null> {
       typeof raw.createdAt === "number"
         ? raw.createdAt
         : Number.parseInt(String(raw.createdAt), 10) || 0,
+    documents,
   };
 }
 

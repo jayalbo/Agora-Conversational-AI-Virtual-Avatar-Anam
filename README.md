@@ -23,6 +23,11 @@ twin of Yan, Agora's developer relations rep in Brazil.
 - **Agora SSO** — visitors sign in with their Agora account; no account, no demo
 - **Per-user time budget** — 10 minutes per Agora account, tracked in Upstash
   Redis (configurable; allowlist supported for live demos)
+- **Knowledge base (pseudo-RAG)** — attach PDF, DOCX, TXT, or MD files in the
+  Settings drawer; text is extracted server-side (and auto-summarized with
+  OpenAI if large) and injected into the agent's system prompt at call start.
+  Admins can pre-attach documents to a preset so the KB loads automatically for
+  anyone who opens that preset URL.
 - **Agora-branded UI** — dark palette, glass surfaces, cyan accents
 
 ## Quick start
@@ -144,6 +149,10 @@ Open [http://localhost:4000](http://localhost:4000).
 - `src/app/api/session/heartbeat/route.ts` — keepalive hit by the client
   every 30s while a call is live, so abandoned sessions can be GC'd.
 - `src/app/api/auth/agora/*` — SSO start / callback / logout routes.
+- `src/app/api/kb/extract/route.ts` — extracts plain text from uploaded files
+  (PDF via `pdf-parse`, DOCX via `mammoth`, TXT/MD natively). Auto-summarizes
+  documents over ~8 000 chars with one OpenAI call so they fit cleanly in the
+  prompt. Returns `{ filename, text, charCount, summarized }`.
 - `src/app/api/assistant/respond/route.ts` — fallback path for typed messages.
 - `src/components/conversation-demo.tsx` — the React client: RTC join, RTM
   subscribe, transcript state, settings drawer, captions, mic picker,
@@ -165,6 +174,9 @@ All tunables live in the Settings drawer (gear icon top-right) and persist in
 - **MCP tools** — enable/disable and set a server URL (SSE)
 - **Vision (camera)** — let the agent see what your camera sees
 - **System prompt** — full override of the agent persona
+- **Knowledge base** — upload documents (PDF, DOCX, TXT, MD) to give the agent
+  per-session context; files are extracted server-side and injected as a
+  `<knowledge_base>` block in the system prompt
 
 A **Restore defaults** button resets everything in this list.
 
@@ -192,6 +204,8 @@ For a public deployment:
 - [`agora-token`](https://www.npmjs.com/package/agora-token) — server-side token builder
 - [`@upstash/redis`](https://www.npmjs.com/package/@upstash/redis) — serverless Redis client for quota storage
 - [`jose`](https://www.npmjs.com/package/jose) — JWT sign/verify for session cookies
+- [`pdf-parse`](https://www.npmjs.com/package/pdf-parse) — server-side PDF text extraction
+- [`mammoth`](https://www.npmjs.com/package/mammoth) — server-side DOCX text extraction
 
 ## License
 

@@ -4,12 +4,14 @@ import {
   Captions,
   CaptionsOff,
   ChevronRight,
+  FileText,
   Infinity as InfinityIcon,
   LoaderCircle,
   LogOut,
   MessageSquare,
   Mic,
   MicOff,
+  Paperclip,
   Phone,
   PhoneOff,
   RotateCcw,
@@ -36,6 +38,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
+import type { KbDocument } from "@/lib/presets";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_VOICE_SPEED = 0.9;
@@ -259,6 +262,13 @@ export function ConversationDemo() {
   const [adminCopiedId, setAdminCopiedId] = useState<string | null>(null);
   const [adminSaving, setAdminSaving] = useState(false);
   const [adminLabel, setAdminLabel] = useState("");
+  const [adminDocuments, setAdminDocuments] = useState<KbDocument[]>([]);
+  const [adminUploadQueue, setAdminUploadQueue] = useState<string[]>([]);
+
+  // Knowledge base documents for the current session (ad-hoc uploads).
+  const [sessionDocuments, setSessionDocuments] = useState<KbDocument[]>([]);
+  const [sessionUploadQueue, setSessionUploadQueue] = useState<string[]>([]);
+  const [kbUploadError, setKbUploadError] = useState<string | null>(null);
 
   // Auth + quota state. `me` is the server's view of who we are and
   // how much time we have left; it's refetched after login and after
@@ -415,6 +425,7 @@ export function ConversationDemo() {
           greeting: string;
           language: "en" | "pt-BR" | "es-MX";
           voiceSpeed: number;
+          documents?: KbDocument[];
         };
         // Setting the locale first so the i18n default for prompt/
         // greeting matches before we override them.
@@ -422,6 +433,9 @@ export function ConversationDemo() {
         setSystemPrompt(preset.systemPrompt);
         setGreeting(preset.greeting);
         setVoiceSpeed(preset.voiceSpeed);
+        if (Array.isArray(preset.documents) && preset.documents.length > 0) {
+          setSessionDocuments(preset.documents);
+        }
         // Mark both prompt and greeting as touched so a later locale
         // switch from the UI doesn't silently clobber the preset
         // copy. These flags belong to the same hydration system that
@@ -852,6 +866,8 @@ export function ConversationDemo() {
     }
     setStatus("idle");
     setIsMuted(false);
+    setSessionDocuments([]);
+    setKbUploadError(null);
     if (avatarVideoRef.current) {
       avatarVideoRef.current.innerHTML = "";
     }
@@ -878,7 +894,8 @@ export function ConversationDemo() {
           mcp: mcpEnabled && mcpServerUrl.trim()
             ? { enabled: true, serverUrl: mcpServerUrl.trim() }
             : { enabled: false },
-          vision: { enabled: visionEnabled }
+          vision: { enabled: visionEnabled },
+          documents: sessionDocuments,
         })
       });
 
@@ -1070,6 +1087,7 @@ export function ConversationDemo() {
     t.errors.startFailed,
     t.fillerPhrases,
     t.settings.visionCameraError,
+    sessionDocuments,
     visionEnabled,
     voiceSpeed
   ]);
@@ -1178,6 +1196,7 @@ export function ConversationDemo() {
           greeting: greeting.trim(),
           language: localeMeta.code,
           voiceSpeed,
+          documents: adminDocuments,
         }),
       });
       if (!res.ok) {
@@ -1203,6 +1222,7 @@ export function ConversationDemo() {
       const json = (await res.json()) as { id: string };
       setAdminLastCreatedId(json.id);
       setAdminLabel("");
+      setAdminDocuments([]);
       await refreshAdminPresets();
       // Auto-copy the freshly minted URL so Yan can paste straight
       // into Slack/email.
@@ -1221,6 +1241,7 @@ export function ConversationDemo() {
       setAdminSaving(false);
     }
   }, [
+    adminDocuments,
     adminLabel,
     buildShareUrl,
     greeting,
@@ -1246,6 +1267,55 @@ export function ConversationDemo() {
       }
     },
     [buildShareUrl],
+  );
+
+  const uploadDocuments = useCallback(
+    async (
+      files: FileList | null,
+      setDocs: React.Dispatch<React.SetStateAction<KbDocument[]>>,
+      setQueue: React.Dispatch<React.SetStateAction<string[]>>,
+    ) => {
+      if (!files || files.length === 0) return;
+      setKbUploadError(null);
+      for (const file of Array.from(files)) {
+        setQueue((prev) => [...prev, file.name]);
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          const res = await fetch("/api/kb/extract", { method: "POST", body: fd });
+          if (res.ok) {
+            const doc = (await res.json()) as KbDocument;
+            setDocs((prev) => [...prev, { filename: doc.filename, text: doc.text }]);
+          } else {
+            const body = (await res.json().catch(() => ({}))) as { error?: string };
+            console.error("[kb/extract] error:", res.status, body);
+            setKbUploadError(`Failed to process "${file.name}": ${body.error ?? res.status}`);
+          }
+        } catch (err) {
+          console.error("[kb/extract] fetch failed:", err);
+          setKbUploadError(`Failed to upload "${file.name}"`);
+        } finally {
+          setQueue((prev) => prev.filter((n) => n !== file.name));
+        }
+      }
+    },
+    [],
+  );
+
+  const handleSessionFileUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      void uploadDocuments(e.target.files, setSessionDocuments, setSessionUploadQueue);
+      e.target.value = "";
+    },
+    [uploadDocuments],
+  );
+
+  const handleAdminFileUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      void uploadDocuments(e.target.files, setAdminDocuments, setAdminUploadQueue);
+      e.target.value = "";
+    },
+    [uploadDocuments],
   );
 
   const handleDeletePreset = useCallback(
@@ -1890,6 +1960,70 @@ export function ConversationDemo() {
                   <p className="text-xs text-slate-500">{t.settings.systemPromptHint}</p>
                 </div>
 
+                {/* Knowledge base documents */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <p className="text-xs font-medium text-slate-300">
+                      Knowledge base
+                      {sessionDocuments.length > 0 ? (
+                        <span className="ml-1.5 rounded bg-[color:var(--agora-blue)]/20 px-1.5 py-0.5 text-[10px] font-medium text-[color:var(--agora-blue)]">
+                          {sessionDocuments.length}
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="cursor-pointer rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-300 hover:bg-white/10">
+                      Choose files…
+                      <input
+                        type="file"
+                        accept=".pdf,.docx,.txt,.md"
+                        multiple
+                        className="sr-only"
+                        onChange={handleSessionFileUpload}
+                      />
+                    </label>
+                    <span className="text-[10px] text-slate-500">PDF, DOCX, TXT, MD</span>
+                  </div>
+                  {sessionUploadQueue.length > 0 ? (
+                    <ul className="space-y-1">
+                      {sessionUploadQueue.map((name) => (
+                        <li key={name} className="flex items-center gap-1.5 text-xs text-slate-400">
+                          <LoaderCircle className="h-3 w-3 animate-spin shrink-0" />
+                          <span className="truncate">{name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {sessionDocuments.length > 0 ? (
+                    <ul className="space-y-1">
+                      {sessionDocuments.map((doc, i) => (
+                        <li key={i} className="flex items-center gap-1.5 text-xs">
+                          <FileText className="h-3 w-3 shrink-0 text-slate-500" />
+                          <span className="flex-1 truncate text-slate-300">{doc.filename}</span>
+                          <span className="shrink-0 text-[10px] text-slate-500">
+                            {doc.text.length.toLocaleString()} chars
+                          </span>
+                          <button
+                            type="button"
+                            className="shrink-0 text-slate-500 hover:text-rose-400"
+                            onClick={() =>
+                              setSessionDocuments((prev) => prev.filter((_, j) => j !== i))
+                            }
+                            aria-label="Remove document"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {kbUploadError ? (
+                    <p className="text-xs text-rose-400">{kbUploadError}</p>
+                  ) : null}
+                </div>
+
                 {isAdminUser ? (
                   <div className="space-y-4 rounded-lg border border-[color:var(--agora-primary)]/30 bg-[color:var(--agora-primary)]/5 p-4">
                     <div className="space-y-1">
@@ -1913,6 +2047,61 @@ export function ConversationDemo() {
                         placeholder={t.admin.labelPlaceholder}
                         maxLength={60}
                       />
+
+                      {/* Knowledge base documents for this preset */}
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-medium text-slate-300">
+                          Knowledge base <span className="font-normal text-slate-500">(optional)</span>
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <label className="cursor-pointer rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-300 hover:bg-white/10">
+                            Choose files…
+                            <input
+                              type="file"
+                              accept=".pdf,.docx,.txt,.md"
+                              multiple
+                              className="sr-only"
+                              disabled={adminSaving}
+                              onChange={handleAdminFileUpload}
+                            />
+                          </label>
+                          <span className="text-[10px] text-slate-500">PDF, DOCX, TXT, MD</span>
+                        </div>
+                        {adminUploadQueue.length > 0 ? (
+                          <ul className="space-y-1">
+                            {adminUploadQueue.map((name) => (
+                              <li key={name} className="flex items-center gap-1.5 text-xs text-slate-400">
+                                <LoaderCircle className="h-3 w-3 animate-spin shrink-0" />
+                                <span className="truncate">{name}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {adminDocuments.length > 0 ? (
+                          <ul className="space-y-1">
+                            {adminDocuments.map((doc, i) => (
+                              <li key={i} className="flex items-center gap-1.5 text-xs">
+                                <FileText className="h-3 w-3 shrink-0 text-slate-500" />
+                                <span className="flex-1 truncate text-slate-300">{doc.filename}</span>
+                                <span className="shrink-0 text-[10px] text-slate-500">
+                                  {doc.text.length.toLocaleString()} chars
+                                </span>
+                                <button
+                                  type="button"
+                                  className="shrink-0 text-slate-500 hover:text-rose-400"
+                                  onClick={() =>
+                                    setAdminDocuments((prev) => prev.filter((_, j) => j !== i))
+                                  }
+                                  aria-label="Remove document"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+
                       <Button
                         size="sm"
                         className="w-full whitespace-nowrap"
