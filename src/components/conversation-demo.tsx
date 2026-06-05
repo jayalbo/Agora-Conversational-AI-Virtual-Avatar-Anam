@@ -3,7 +3,10 @@
 import {
   Captions,
   CaptionsOff,
+  Check,
+  ChevronDown,
   ChevronRight,
+  Copy,
   FileText,
   Infinity as InfinityIcon,
   LoaderCircle,
@@ -269,6 +272,18 @@ export function ConversationDemo() {
   const [sessionDocuments, setSessionDocuments] = useState<KbDocument[]>([]);
   const [sessionUploadQueue, setSessionUploadQueue] = useState<string[]>([]);
   const [kbUploadError, setKbUploadError] = useState<string | null>(null);
+
+  // Lightweight session diagnostics, surfaced behind a collapsed panel so
+  // a user can hand the agent id / channel / start time to the support
+  // team if a session misbehaves. Persists after the call ends (overwritten
+  // on the next start) so it's still grabbable post-mortem.
+  const [sessionDebug, setSessionDebug] = useState<{
+    agentId: string;
+    channelName: string;
+    startedAt: number;
+  } | null>(null);
+  const [showSessionDebug, setShowSessionDebug] = useState(false);
+  const [debugCopied, setDebugCopied] = useState(false);
 
   // Auth + quota state. `me` is the server's view of who we are and
   // how much time we have left; it's refetched after login and after
@@ -943,6 +958,15 @@ export function ConversationDemo() {
         };
       }
 
+      // Capture diagnostics for the support panel. Recorded even when the
+      // agent failed to start (agentId blank) so a failed session is still
+      // reportable by its channel + timestamp.
+      setSessionDebug({
+        agentId: session.agent.agentId ?? "",
+        channelName: session.channelName,
+        startedAt: Date.now(),
+      });
+
       if (!agoraRtcRef.current) {
         const mod = await import("agora-rtc-sdk-ng");
         agoraRtcRef.current = mod.default;
@@ -1271,6 +1295,22 @@ export function ConversationDemo() {
     },
     [buildShareUrl],
   );
+
+  const handleCopySessionDebug = useCallback(async () => {
+    if (!sessionDebug) return;
+    const text = [
+      `Agent ID: ${sessionDebug.agentId || "(agent did not start)"}`,
+      `Channel: ${sessionDebug.channelName}`,
+      `Started: ${new Date(sessionDebug.startedAt).toISOString()}`,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setDebugCopied(true);
+      window.setTimeout(() => setDebugCopied(false), 2000);
+    } catch {
+      // ignore — older browsers / insecure contexts.
+    }
+  }, [sessionDebug]);
 
   const uploadDocuments = useCallback(
     async (
@@ -2295,6 +2335,58 @@ export function ConversationDemo() {
             </Button>
           )}
         </div>
+
+        {/* Session diagnostics — collapsed by default; for handing details
+            to the support team if a session misbehaves. */}
+        {sessionDebug ? (
+          <div className="mx-auto mt-2 max-w-3xl">
+            <button
+              type="button"
+              onClick={() => setShowSessionDebug((v) => !v)}
+              className="mx-auto flex items-center gap-1 text-[10px] text-slate-600 transition-colors hover:text-slate-400"
+              aria-expanded={showSessionDebug}
+            >
+              {showSessionDebug ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+              {t.debug.title}
+            </button>
+            {showSessionDebug ? (
+              <div className="mt-1.5 space-y-1 rounded-lg border border-white/5 bg-black/30 p-3 font-mono text-[11px] text-slate-400">
+                <div className="flex gap-2">
+                  <span className="shrink-0 text-slate-600">{t.debug.agentId}</span>
+                  <span className="break-all text-slate-300">
+                    {sessionDebug.agentId || t.debug.agentNotStarted}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="shrink-0 text-slate-600">{t.debug.channel}</span>
+                  <span className="break-all text-slate-300">{sessionDebug.channelName}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="shrink-0 text-slate-600">{t.debug.started}</span>
+                  <span className="text-slate-300">
+                    {new Date(sessionDebug.startedAt).toLocaleString()}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleCopySessionDebug()}
+                  className="mt-1 flex items-center gap-1 rounded border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 hover:bg-white/10"
+                >
+                  {debugCopied ? (
+                    <Check className="h-3 w-3" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
+                  {debugCopied ? t.debug.copied : t.debug.copy}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </footer>
     </main>
   );

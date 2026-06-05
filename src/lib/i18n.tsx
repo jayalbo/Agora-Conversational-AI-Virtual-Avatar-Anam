@@ -155,6 +155,15 @@ type Dictionary = {
     quotaExhaustedTitle: string;
     quotaExhaustedBody: string;
   };
+  debug: {
+    title: string;
+    agentId: string;
+    channel: string;
+    started: string;
+    agentNotStarted: string;
+    copy: string;
+    copied: string;
+  };
   systemPromptDefault: string;
   greetingDefault: string;
   fillerPhrases: string[];
@@ -284,6 +293,15 @@ const en: Dictionary = {
     quotaExhaustedTitle: "Your demo time is up for today",
     quotaExhaustedBody:
       "You've used your 10 free minutes. Your quota resets at midnight UTC — come back tomorrow!",
+  },
+  debug: {
+    title: "Session info",
+    agentId: "Agent ID",
+    channel: "Channel",
+    started: "Started",
+    agentNotStarted: "(agent did not start)",
+    copy: "Copy for support",
+    copied: "Copied",
   },
   systemPromptDefault: [
     "You are a digital twin of Yan, Agora's developer relations representative in Brazil.",
@@ -445,6 +463,15 @@ const ptBR: Dictionary = {
     quotaExhaustedTitle: "Seu tempo de hoje acabou",
     quotaExhaustedBody:
       "Você usou seus 10 minutos gratuitos. Sua cota é renovada à meia-noite UTC — volta amanhã!",
+  },
+  debug: {
+    title: "Info da sessão",
+    agentId: "ID do agente",
+    channel: "Canal",
+    started: "Início",
+    agentNotStarted: "(o agente não iniciou)",
+    copy: "Copiar para o suporte",
+    copied: "Copiado",
   },
   systemPromptDefault: [
     "Você é o gêmeo digital do Yan, representante de Developer Relations da Agora no Brasil.",
@@ -608,6 +635,15 @@ const esMX: Dictionary = {
     quotaExhaustedTitle: "Se acabó tu tiempo de hoy",
     quotaExhaustedBody:
       "Ya usaste tus 10 minutos gratis. Tu cuota se renueva a medianoche UTC — ¡vuelve mañana!",
+  },
+  debug: {
+    title: "Info de la sesión",
+    agentId: "ID del agente",
+    channel: "Canal",
+    started: "Inicio",
+    agentNotStarted: "(el agente no inició)",
+    copy: "Copiar para soporte",
+    copied: "Copiado",
   },
   systemPromptDefault: [
     "Eres el gemelo digital de Yan, representante de Developer Relations de Agora en Brasil.",
