@@ -1589,6 +1589,59 @@ export function ConversationDemo() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Session diagnostics — subtle trigger, floats a panel below so
+              a user can hand the agent id / channel / time to support. */}
+          {sessionDebug ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowSessionDebug((v) => !v)}
+                className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-900/70 px-2.5 py-1 text-xs text-slate-400 transition hover:bg-white/10 hover:text-slate-200"
+                aria-expanded={showSessionDebug}
+                title={t.debug.title}
+              >
+                {t.debug.title}
+                <ChevronDown
+                  className={cn(
+                    "h-3 w-3 transition-transform",
+                    showSessionDebug ? "rotate-180" : "",
+                  )}
+                />
+              </button>
+              {showSessionDebug ? (
+                <div className="absolute right-0 top-full z-30 mt-2 w-72 space-y-1 rounded-lg border border-white/10 bg-slate-950/95 p-3 font-mono text-[11px] text-slate-400 shadow-xl shadow-black/60 backdrop-blur-sm">
+                  <div className="flex gap-2">
+                    <span className="shrink-0 text-slate-600">{t.debug.agentId}</span>
+                    <span className="break-all text-slate-300">
+                      {sessionDebug.agentId || t.debug.agentNotStarted}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="shrink-0 text-slate-600">{t.debug.channel}</span>
+                    <span className="break-all text-slate-300">{sessionDebug.channelName}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="shrink-0 text-slate-600">{t.debug.started}</span>
+                    <span className="text-slate-300">
+                      {new Date(sessionDebug.startedAt).toLocaleString()}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopySessionDebug()}
+                    className="mt-1 flex items-center gap-1 rounded border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 hover:bg-white/10"
+                  >
+                    {debugCopied ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                    {debugCopied ? t.debug.copied : t.debug.copy}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {/* Quota chip: "Unlimited" / "Dev mode" for bypass, else "M:SS left". */}
           {me.unlimited ? (
             <Badge variant="default" className="gap-1">
@@ -2335,58 +2388,6 @@ export function ConversationDemo() {
             </Button>
           )}
         </div>
-
-        {/* Session diagnostics — collapsed by default; for handing details
-            to the support team if a session misbehaves. */}
-        {sessionDebug ? (
-          <div className="mx-auto mt-2 max-w-3xl">
-            <button
-              type="button"
-              onClick={() => setShowSessionDebug((v) => !v)}
-              className="mx-auto flex items-center gap-1 text-[10px] text-slate-600 transition-colors hover:text-slate-400"
-              aria-expanded={showSessionDebug}
-            >
-              {showSessionDebug ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronRight className="h-3 w-3" />
-              )}
-              {t.debug.title}
-            </button>
-            {showSessionDebug ? (
-              <div className="mt-1.5 space-y-1 rounded-lg border border-white/5 bg-black/30 p-3 font-mono text-[11px] text-slate-400">
-                <div className="flex gap-2">
-                  <span className="shrink-0 text-slate-600">{t.debug.agentId}</span>
-                  <span className="break-all text-slate-300">
-                    {sessionDebug.agentId || t.debug.agentNotStarted}
-                  </span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="shrink-0 text-slate-600">{t.debug.channel}</span>
-                  <span className="break-all text-slate-300">{sessionDebug.channelName}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="shrink-0 text-slate-600">{t.debug.started}</span>
-                  <span className="text-slate-300">
-                    {new Date(sessionDebug.startedAt).toLocaleString()}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleCopySessionDebug()}
-                  className="mt-1 flex items-center gap-1 rounded border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 hover:bg-white/10"
-                >
-                  {debugCopied ? (
-                    <Check className="h-3 w-3" />
-                  ) : (
-                    <Copy className="h-3 w-3" />
-                  )}
-                  {debugCopied ? t.debug.copied : t.debug.copy}
-                </button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
       </footer>
     </main>
   );
