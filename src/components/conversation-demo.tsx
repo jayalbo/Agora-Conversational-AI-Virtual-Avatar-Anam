@@ -1580,7 +1580,7 @@ export function ConversationDemo() {
   return (
     <main className="flex h-screen w-screen flex-col overflow-hidden text-slate-100">
       {/* Top bar */}
-      <header className="flex items-center justify-between border-b border-white/5 bg-slate-950/50 px-4 py-3 backdrop-blur-sm md:px-6">
+      <header className="relative z-40 flex items-center justify-between border-b border-white/5 bg-slate-950/50 px-4 py-3 backdrop-blur-sm md:px-6">
         <div className="flex items-center gap-3">
           <AgoraLogo className="h-7 w-auto" />
           <div className="hidden leading-tight sm:block">
