@@ -3,8 +3,17 @@ import { NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
 
-const SUMMARIZE_THRESHOLD = 8_000;
-const SUMMARY_MAX_CHARS = 4_000;
+// A knowledge base needs verbatim retrieval of specific facts, so we
+// inject documents whole and only fall back to summarization for files
+// large enough to threaten the model's context window. gpt-4o-mini has
+// a 128k-token (~500k-char) context, so ~100k chars (~25k tokens) per
+// document leaves ample room for the persona, other docs, and history.
+// Summarizing earlier silently drops exactly the long-tail facts the KB
+// exists to answer. Both bounds are env-overridable per deploy.
+const SUMMARIZE_THRESHOLD = Number(
+  process.env.KB_SUMMARIZE_THRESHOLD ?? 100_000,
+);
+const SUMMARY_MAX_CHARS = 12_000;
 
 const SUPPORTED_MIME_TYPES = new Set([
   "application/pdf",
@@ -59,14 +68,14 @@ async function summarize(text: string): Promise<string> {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1024,
+      max_tokens: 4096,
       messages: [
         {
           role: "system",
           content:
-            "Summarize the following document into a dense, information-preserving summary. Preserve all key facts, figures, procedures, names, and entities. Output only the summary with no preamble.",
+            "Summarize the following document into a dense, information-preserving summary. Preserve ALL specific facts, figures, prices, dates, names, lists, and tables verbatim — do not drop details for brevity. This summary is the only copy the assistant will see, so omitting a fact means it is lost. Output only the summary with no preamble.",
         },
-        { role: "user", content: text.slice(0, 60_000) },
+        { role: "user", content: text.slice(0, 200_000) },
       ],
     }),
   });
