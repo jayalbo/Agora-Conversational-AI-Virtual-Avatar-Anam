@@ -95,8 +95,19 @@ export function isBypassed(user: {
   return list.includes(idKey) || (!!emailKey && list.includes(emailKey));
 }
 
-function usageKey(userId: string, bucket: string = dayBucket()): string {
-  return `usage:${userId}:${bucket}`;
+/**
+ * Stable per-user key for quota Redis hashes. Prefer email because
+ * Agora's /company/basic-info often returns a company-level customerId
+ * that many SSO accounts share; email is unique to the signed-in person.
+ */
+function quotaSubject(user: { id: string; email?: string | null }): string {
+  const email = user.email?.trim().toLowerCase();
+  if (email) return email;
+  return user.id.trim();
+}
+
+function usageKey(user: { id: string; email?: string | null }, bucket: string = dayBucket()): string {
+  return `usage:${quotaSubject(user)}:${bucket}`;
 }
 
 export async function getUsage(user: {
@@ -115,7 +126,7 @@ export async function getUsage(user: {
     };
   }
 
-  const key = usageKey(user.id);
+  const key = usageKey(user);
   const [usedRaw, reservedRaw, resExpRaw] = await Promise.all([
     redis().hget<number | string>(key, "used"),
     redis().hget<number | string>(key, "reserved"),
@@ -125,13 +136,19 @@ export async function getUsage(user: {
   const used = coerceInt(usedRaw);
   let reserved = coerceInt(reservedRaw);
 
-  // An expired reservation is effectively zero — the visitor either
-  // crashed out or never called commit. We report the effective value
-  // here but don't mutate storage from a read path; the next reserve()
-  // call clears it atomically.
+  // An expired (or malformed) reservation is effectively zero — the
+  // visitor either crashed out or never called commit. Missing resExp
+  // must also count as expired; otherwise a stale `reserved` field
+  // permanently pins the user at 0 minutes.
   const nowMs = Date.now();
   const resExpMs = coerceInt(resExpRaw);
-  if (resExpMs && resExpMs < nowMs) reserved = 0;
+  const reservationExpired = !resExpMs || resExpMs < nowMs;
+  if (reservationExpired) {
+    if (reserved > 0) {
+      await redis().hdel(key, "reserved", "resId", "resExp");
+    }
+    reserved = 0;
+  }
 
   const effectiveUsed = Math.max(0, used) + Math.max(0, reserved);
   const remainingSeconds = Math.max(0, quotaSeconds - effectiveUsed);
@@ -167,7 +184,7 @@ export async function reserve(
 
   const reservedSeconds = Math.min(seconds, usage.remainingSeconds);
   const id = crypto.randomUUID();
-  const key = usageKey(user.id, bucket);
+  const key = usageKey(user, bucket);
 
   // Clear any stale reservation (its expiry has already excluded it
   // from `remainingSeconds`, so we're safe to overwrite), then set the
@@ -201,7 +218,7 @@ export async function commit(
   if (isBypassed(user)) return;
   if (!isValidBucket(reservationBucket)) return;
 
-  const key = usageKey(user.id, reservationBucket);
+  const key = usageKey(user, reservationBucket);
   const currentResId = await redis().hget<string>(key, "resId");
   if (currentResId !== reservationId) {
     // Already committed (or replaced by a newer reservation). No-op.
@@ -225,16 +242,37 @@ export async function heartbeat(
 ): Promise<void> {
   if (isBypassed(user)) return;
   if (!isValidBucket(reservationBucket)) return;
-  const key = usageKey(user.id, reservationBucket);
+  const key = usageKey(user, reservationBucket);
   const currentResId = await redis().hget<string>(key, "resId");
   if (currentResId !== reservationId) return;
   const expMs = Date.now() + RESERVATION_TTL_SECONDS * 1000;
   await redis().hset(key, { resExp: expMs });
 }
 
+/**
+ * Drop an in-flight reservation without committing elapsed time. Used
+ * when /start fails after reserve() so a crashed start doesn't eat the
+ * user's whole daily budget for 2 hours.
+ */
+export async function releaseReservation(
+  user: { id: string; email?: string | null },
+  reservation: Pick<Reservation, "id" | "bucket">,
+): Promise<void> {
+  if (isBypassed(user)) return;
+  if (!isValidBucket(reservation.bucket)) return;
+
+  const key = usageKey(user, reservation.bucket);
+  const currentResId = await redis().hget<string>(key, "resId");
+  if (currentResId !== reservation.id) return;
+  await redis().hdel(key, "reserved", "resId", "resExp");
+}
+
 /** Admin helper: wipe a user's current-day usage. */
-export async function resetUsage(userId: string): Promise<void> {
-  await redis().del(usageKey(userId));
+export async function resetUsage(user: {
+  id: string;
+  email?: string | null;
+}): Promise<void> {
+  await redis().del(usageKey(user));
 }
 
 function coerceInt(value: number | string | null): number {

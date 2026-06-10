@@ -31,6 +31,7 @@ export async function GET() {
       bypass: isBypassed(user),
       quotaSeconds: usage.quotaSeconds,
       usedSeconds: usage.usedSeconds,
+      reservedSeconds: usage.reservedSeconds,
       // `Infinity` is not valid JSON, so we substitute a large sentinel
       // when the account is unlimited. The frontend checks `unlimited`
       // first and never renders this value in that case.

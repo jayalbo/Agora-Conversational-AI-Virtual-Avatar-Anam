@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
-import { quotaSecondsPerUser, reserve } from "@/lib/quota";
+import { quotaSecondsPerUser, releaseReservation, reserve } from "@/lib/quota";
 import type { KbDocument } from "@/lib/presets";
 
 type McpConfig = { enabled: false } | { enabled: true; serverUrl: string };
@@ -371,6 +371,7 @@ async function startConversationalAgent(params: {
 }
 
 export async function POST(request: Request) {
+  let reservation: Awaited<ReturnType<typeof reserve>> | null = null;
   try {
     // Gate: the caller must be signed in (or in bypass mode locally).
     const user = await getSessionUser();
@@ -405,18 +406,19 @@ export async function POST(request: Request) {
     // the agent. If the quota store is unconfigured (e.g. Upstash not
     // linked yet), let the call proceed with a no-op reservation
     // instead of blocking the user.
-    let reservation: Awaited<ReturnType<typeof reserve>>;
+    let reservationResult: Awaited<ReturnType<typeof reserve>>;
     try {
-      reservation = await reserve(user, quotaSecondsPerUser());
+      reservationResult = await reserve(user, quotaSecondsPerUser());
     } catch (err) {
       console.error("[session/start] quota store unavailable, allowing call:", err);
-      reservation = {
+      reservationResult = {
         id: "quota-unavailable",
         seconds: 0,
         startedAt: Date.now(),
         bucket: new Date().toISOString().slice(0, 10),
       };
     }
+    reservation = reservationResult;
     if (!reservation) {
       return NextResponse.json(
         { error: "quota_exhausted" },
@@ -507,6 +509,20 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
+    if (
+      reservation &&
+      reservation.id !== "bypass" &&
+      reservation.id !== "quota-unavailable"
+    ) {
+      try {
+        const user = await getSessionUser();
+        if (user) {
+          await releaseReservation(user, reservation);
+        }
+      } catch (releaseErr) {
+        console.error("[session/start] failed to release reservation:", releaseErr);
+      }
+    }
     console.error("[convai] /api/session/start failed:", err);
     return NextResponse.json(
       { error: "Invalid request payload." },

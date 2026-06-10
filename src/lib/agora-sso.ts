@@ -190,7 +190,8 @@ function normalizeCustomer(data: Record<string, unknown>): AgoraCustomer {
   };
 
   const id =
-    pick("customerId", "customer_id", "userId", "user_id", "id", "uid") ||
+    pick("userId", "user_id", "uid", "id") ||
+    pick("customerId", "customer_id") ||
     pick("accountId", "account_id") ||
     pick("email", "emailAddress", "email_address", "loginEmail");
   const email = pick("email", "emailAddress", "email_address", "loginEmail");
